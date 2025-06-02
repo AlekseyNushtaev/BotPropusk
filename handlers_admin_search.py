@@ -1,0 +1,425 @@
+# handlers_admin_search.py
+import asyncio
+
+from aiogram import Router, F
+from aiogram.fsm import state
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from sqlalchemy import select, func
+from datetime import datetime, timedelta
+
+from bot import bot
+from db.models import AsyncSessionLocal, PermanentPass, TemporaryPass, Resident, Contractor
+from config import PASS_TIME, ADMIN_IDS, RAZRAB
+from filters import IsAdminOrManager
+
+router = Router()
+router.message.filter(IsAdminOrManager())
+router.callback_query.filter(IsAdminOrManager())
+
+
+class SearchStates(StatesGroup):
+    WAITING_NUMBER = State()
+    WAITING_DIGITS = State()
+
+
+# Клавиатура меню поиска
+def get_search_menu():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔍 Поиск по номеру", callback_data="search_by_number")],
+        [InlineKeyboardButton(text="🔢 Поиск по цифрам", callback_data="search_by_digits")],
+        [InlineKeyboardButton(text="📋 Все временные пропуска", callback_data="all_temp_passes")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_main")]
+    ])
+
+
+@router.callback_query(F.data == "search_pass")
+async def search_pass_menu(callback: CallbackQuery):
+    try:
+        await callback.message.edit_text(
+            "Выберите тип поиска пропуска:",
+            reply_markup=get_search_menu()
+        )
+    except Exception as e:
+        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
+        await asyncio.sleep(0.05)
+
+
+@router.callback_query(F.data == "search_by_number")
+async def start_search_by_number(callback: CallbackQuery, state: FSMContext):
+    try:
+        await callback.message.answer("Введите номер машины полностью:")
+        await state.set_state(SearchStates.WAITING_NUMBER)
+        await callback.answer()
+    except Exception as e:
+        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
+        await asyncio.sleep(0.05)
+
+
+@router.message(F.text, SearchStates.WAITING_NUMBER)
+async def search_by_number(message: Message, state: FSMContext):
+    try:
+        car_number = message.text.upper().strip()
+        today = datetime.now().date()
+        found = False
+        await state.clear()
+
+        async with AsyncSessionLocal() as session:
+            # 1. Поиск постоянных пропусков
+            perm_stmt = select(PermanentPass, Resident.fio, Resident.plot_number) \
+                .join(Resident, PermanentPass.resident_id == Resident.id) \
+                .where(
+                PermanentPass.car_number == car_number,
+                PermanentPass.status == 'approved'
+            )
+            perm_result = await session.execute(perm_stmt)
+            perm_passes = perm_result.all()
+
+            temp_res_stmt = select(
+                TemporaryPass,
+                Resident.fio,
+                Resident.plot_number
+            ).join(Resident, TemporaryPass.resident_id == Resident.id).where(
+                TemporaryPass.car_number == car_number,
+                TemporaryPass.status == 'approved',
+                TemporaryPass.visit_date <= today,
+                func.date(TemporaryPass.visit_date, f'+{PASS_TIME} days') >= today)
+
+            temp_res_result = await session.execute(temp_res_stmt)
+            temp_res_passes = temp_res_result.all()
+
+            # 3. Поиск временных пропусков подрядчиков
+            temp_contr_stmt = select(
+                TemporaryPass,
+                Contractor.fio,
+                Contractor.company,
+                Contractor.position
+            ) \
+                .join(Contractor, TemporaryPass.contractor_id == Contractor.id) \
+                .where(
+                TemporaryPass.car_number == car_number,
+                TemporaryPass.status == 'approved',
+                TemporaryPass.visit_date <= today,
+                today <= func.date(TemporaryPass.visit_date, f'+{PASS_TIME} days'))
+
+            temp_contr_result = await session.execute(temp_contr_stmt)
+            temp_contr_passes = temp_contr_result.all()
+
+            # Обработка постоянных пропусков
+            for pass_data in perm_passes:
+                found = True
+                perm_pass, fio, plot_number = pass_data
+                text = (
+                    "🔰 <b>Постоянный пропуск резидента</b>\n\n"
+                    f"👤 ФИО резидента: {fio}\n"
+                    f"🏠 Номер участка: {plot_number}\n"
+                    f"🚗 Марка: {perm_pass.car_brand}\n"
+                    f"🚙 Модель: {perm_pass.car_model}\n"
+                    f"🔢 Номер: {perm_pass.car_number}\n"
+                    f"👤 Владелец: {perm_pass.car_owner}\n"
+                    f"📝 Комментарий для СБ: {perm_pass.security_comment or 'нет'}"
+                )
+                await asyncio.sleep(0.05)
+                await message.answer(text, parse_mode="HTML")
+
+            # Обработка временных пропусков резидентов
+            for pass_data in temp_res_passes:
+                found = True
+                temp_pass, fio, plot_number = pass_data
+                text = (
+                    "⏳ <b>Временный пропуск резидента</b>\n\n"
+                    f"👤 ФИО резидента: {fio}\n"
+                    f"🏠 Номер участка: {plot_number}\n"
+                    f"🚗 Тип ТС: {'Легковой' if temp_pass.vehicle_type == 'car' else 'Грузовой'}\n"
+                    f"🔢 Номер: {temp_pass.car_number}\n"
+                    f"🚙 Марка: {temp_pass.car_brand}\n"
+                    f"📦 Тип груза: {temp_pass.cargo_type}\n"
+                    f"🎯 Цель визита: {temp_pass.purpose}\n"
+                    f"📅 Дата визита: {temp_pass.visit_date.strftime('%d.%m.%Y')} - "
+                    f"{(temp_pass.visit_date + timedelta(days=PASS_TIME)).strftime('%d.%m.%Y')}\n"
+                    f"💬 Комментарий владельца: {temp_pass.owner_comment or 'нет'}\n"
+                    f"📝 Комментарий для СБ: {temp_pass.security_comment or 'нет'}"
+                )
+                await message.answer(text, parse_mode="HTML")
+                await asyncio.sleep(0.05)
+
+            # Обработка временных пропусков подрядчиков
+            for pass_data in temp_contr_passes:
+                found = True
+                temp_pass, fio, company, position = pass_data
+                text = (
+                    "⏳ <b>Временный пропуск подрядчика</b>\n\n"
+                    f"👷 ФИО подрядчика: {fio}\n"
+                    f"🏢 Компания: {company}\n"
+                    f"💼 Должность: {position}\n"
+                    f"🚗 Тип ТС: {'Легковой' if temp_pass.vehicle_type == 'car' else 'Грузовой'}\n"
+                    f"🔢 Номер: {temp_pass.car_number}\n"
+                    f"🚙 Марка: {temp_pass.car_brand}\n"
+                    f"📦 Тип груза: {temp_pass.cargo_type}\n"
+                    f"🎯 Цель визита: {temp_pass.purpose}\n"
+                    f"📅 Дата визита: {temp_pass.visit_date.strftime('%d.%m.%Y')} - "
+                    f"{(temp_pass.visit_date + timedelta(days=PASS_TIME)).strftime('%d.%m.%Y')}\n"
+                    f"💬 Комментарий владельца: {temp_pass.owner_comment or 'нет'}\n"
+                    f"📝 Комментарий для СБ: {temp_pass.security_comment or 'нет'}"
+                )
+                await message.answer(text, parse_mode="HTML")
+                await asyncio.sleep(0.05)
+
+            # Формируем итоговое сообщение
+            if found:
+                reply_text = "🔍 Поиск осуществлен"
+            else:
+                reply_text = "❌ Совпадений не найдено"
+
+            await message.answer(
+                reply_text,
+                reply_markup=InlineKeyboardMarkup(
+                    inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data="search_pass")]]
+                )
+            )
+    except Exception as e:
+        await bot.send_message(RAZRAB, f'{message.from_user.id} - {str(e)}')
+        await asyncio.sleep(0.05)
+
+
+@router.callback_query(F.data == "search_by_digits")
+async def start_search_by_digits(callback: CallbackQuery, state: FSMContext):
+    try:
+        await callback.message.answer("Введите часть номера машины:")
+        await state.set_state(SearchStates.WAITING_DIGITS)
+        await callback.answer()
+    except Exception as e:
+        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
+        await asyncio.sleep(0.05)
+
+
+@router.message(F.text, SearchStates.WAITING_DIGITS)
+async def search_by_digits(message: Message, state: FSMContext):
+    try:
+        digits = message.text.strip()
+        today = datetime.now().date()
+        await state.clear()
+        found = False
+
+        async with AsyncSessionLocal() as session:
+            # 1. Поиск постоянных пропусков
+            perm_stmt = select(PermanentPass, Resident.fio, Resident.plot_number) \
+                .join(Resident, PermanentPass.resident_id == Resident.id) \
+                .where(
+                PermanentPass.status == 'approved',
+                PermanentPass.car_number.ilike(f"%{digits}%")
+            )
+            perm_result = await session.execute(perm_stmt)
+            perm_passes = perm_result.all()
+
+            # 2. Поиск временных пропусков резидентов
+            temp_res_stmt = select(
+                TemporaryPass,
+                Resident.fio,
+                Resident.plot_number
+            ) \
+                .join(Resident, TemporaryPass.resident_id == Resident.id) \
+                .where(
+                TemporaryPass.status == 'approved',
+                TemporaryPass.visit_date <= today,
+                func.date(TemporaryPass.visit_date, f'+{PASS_TIME} days') >= today,
+                TemporaryPass.car_number.ilike(f"%{digits}%")
+            )
+
+            temp_res_result = await session.execute(temp_res_stmt)
+            temp_res_passes = temp_res_result.all()
+
+            # 3. Поиск временных пропусков подрядчиков
+            temp_contr_stmt = select(
+                TemporaryPass,
+                Contractor.fio,
+                Contractor.company,
+                Contractor.position
+            ) \
+                .join(Contractor, TemporaryPass.contractor_id == Contractor.id) \
+                .where(
+                TemporaryPass.status == 'approved',
+                TemporaryPass.visit_date <= today,
+                func.date(TemporaryPass.visit_date, f'+{PASS_TIME} days') >= today,
+                TemporaryPass.car_number.ilike(f"%{digits}%")
+            )
+
+            temp_contr_result = await session.execute(temp_contr_stmt)
+            temp_contr_passes = temp_contr_result.all()
+
+            # Обработка постоянных пропусков
+            for pass_data in perm_passes:
+                found = True
+                perm_pass, fio, plot_number = pass_data
+                text = (
+                    "🔰 <b>Постоянный пропуск резидента</b>\n\n"
+                    f"👤 ФИО резидента: {fio}\n"
+                    f"🏠 Номер участка: {plot_number}\n"
+                    f"🚗 Марка: {perm_pass.car_brand}\n"
+                    f"🚙 Модель: {perm_pass.car_model}\n"
+                    f"🔢 Номер: {perm_pass.car_number}\n"
+                    f"👤 Владелец: {perm_pass.car_owner}\n"
+                    f"📝 Комментарий для СБ: {perm_pass.security_comment or 'нет'}"
+                )
+                await message.answer(text, parse_mode="HTML")
+                await asyncio.sleep(0.05)
+
+            # Обработка временных пропусков резидентов
+            for pass_data in temp_res_passes:
+                found = True
+                temp_pass, fio, plot_number = pass_data
+                text = (
+                    "⏳ <b>Временный пропуск резидента</b>\n\n"
+                    f"👤 ФИО резидента: {fio}\n"
+                    f"🏠 Номер участка: {plot_number}\n"
+                    f"🚗 Тип ТС: {'Легковой' if temp_pass.vehicle_type == 'car' else 'Грузовой'}\n"
+                    f"🔢 Номер: {temp_pass.car_number}\n"
+                    f"🚙 Марка: {temp_pass.car_brand}\n"
+                    f"📦 Тип груза: {temp_pass.cargo_type}\n"
+                    f"🎯 Цель визита: {temp_pass.purpose}\n"
+                    f"📅 Дата визита: {temp_pass.visit_date.strftime('%d.%m.%Y')} - "
+                    f"{(temp_pass.visit_date + timedelta(days=PASS_TIME)).strftime('%d.%m.%Y')}\n"
+                    f"💬 Комментарий владельца: {temp_pass.owner_comment or 'нет'}\n"
+                    f"📝 Комментарий для СБ: {temp_pass.security_comment or 'нет'}"
+                )
+                await message.answer(text, parse_mode="HTML")
+                await asyncio.sleep(0.05)
+
+            # Обработка временных пропусков подрядчиков
+            for pass_data in temp_contr_passes:
+                found = True
+                temp_pass, fio, company, position = pass_data
+                text = (
+                    "⏳ <b>Временный пропуск подрядчика</b>\n\n"
+                    f"👷 ФИО подрядчика: {fio}\n"
+                    f"🏢 Компания: {company}\n"
+                    f"💼 Должность: {position}\n"
+                    f"🚗 Тип ТС: {'Легковой' if temp_pass.vehicle_type == 'car' else 'Грузовой'}\n"
+                    f"🔢 Номер: {temp_pass.car_number}\n"
+                    f"🚙 Марка: {temp_pass.car_brand}\n"
+                    f"📦 Тип груза: {temp_pass.cargo_type}\n"
+                    f"🎯 Цель визита: {temp_pass.purpose}\n"
+                    f"📅 Дата визита: {temp_pass.visit_date.strftime('%d.%m.%Y')} - "
+                    f"{(temp_pass.visit_date + timedelta(days=PASS_TIME)).strftime('%d.%m.%Y')}\n"
+                    f"💬 Комментарий владельца: {temp_pass.owner_comment or 'нет'}\n"
+                    f"📝 Комментарий для СБ: {temp_pass.security_comment or 'нет'}"
+                )
+                await message.answer(text, parse_mode="HTML")
+                await asyncio.sleep(0.05)
+
+
+        # Формируем итоговое сообщение
+        if found:
+            reply_text = "🔍 Поиск осуществлен"
+        else:
+            reply_text = "❌ Совпадений не найдено"
+
+        await message.answer(
+            reply_text,
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data="search_pass")]]
+            )
+        )
+    except Exception as e:
+        await bot.send_message(RAZRAB, f'{message.from_user.id} - {str(e)}')
+        await asyncio.sleep(0.05)
+
+
+@router.callback_query(F.data == "all_temp_passes")
+async def show_all_temp_passes(callback: CallbackQuery):
+    try:
+        today = datetime.now().date()
+        found = False
+
+        async with AsyncSessionLocal() as session:
+            # Поиск временных пропусков резидентов
+            res_stmt = select(
+                TemporaryPass,
+                Resident.fio,
+                Resident.plot_number
+            ) \
+                .join(Resident, TemporaryPass.resident_id == Resident.id) \
+                .where(
+                TemporaryPass.status == 'approved',
+                TemporaryPass.visit_date <= today,
+                func.date(TemporaryPass.visit_date, f'+{PASS_TIME} days') >= today)
+
+            res_result = await session.execute(res_stmt)
+            res_passes = res_result.all()
+
+            # Поиск временных пропусков подрядчиков
+            contr_stmt = select(
+                TemporaryPass,
+                Contractor.fio,
+                Contractor.company,
+                Contractor.position
+            ) \
+                .join(Contractor, TemporaryPass.contractor_id == Contractor.id) \
+                .where(
+                TemporaryPass.status == 'approved',
+                TemporaryPass.visit_date <= today,
+                func.date(TemporaryPass.visit_date, f'+{PASS_TIME} days') >= today)
+
+            contr_result = await session.execute(contr_stmt)
+            contr_passes = contr_result.all()
+
+            # Обработка пропусков резидентов
+            for pass_data in res_passes:
+                found = True
+                temp_pass, fio, plot_number = pass_data
+                text = (
+                    "⏳ <b>Временный пропуск резидента</b>\n\n"
+                    f"👤 ФИО резидента: {fio}\n"
+                    f"🏠 Номер участка: {plot_number}\n"
+                    f"🚗 Тип ТС: {'Легковой' if temp_pass.vehicle_type == 'car' else 'Грузовой'}\n"
+                    f"🔢 Номер: {temp_pass.car_number}\n"
+                    f"🚙 Марка: {temp_pass.car_brand}\n"
+                    f"📦 Тип груза: {temp_pass.cargo_type}\n"
+                    f"🎯 Цель визита: {temp_pass.purpose}\n"
+                    f"📅 Дата визита: {temp_pass.visit_date.strftime('%d.%m.%Y')} - "
+                    f"{(temp_pass.visit_date + timedelta(days=PASS_TIME)).strftime('%d.%m.%Y')}\n"
+                    f"💬 Комментарий владельца: {temp_pass.owner_comment or 'нет'}\n"
+                    f"📝 Комментарий для СБ: {temp_pass.security_comment or 'нет'}"
+                )
+                await callback.message.answer(text, parse_mode="HTML")
+                await asyncio.sleep(0.05)
+
+            # Обработка пропусков подрядчиков
+            for pass_data in contr_passes:
+                found = True
+                temp_pass, fio, company, position = pass_data
+                text = (
+                    "⏳ <b>Временный пропуск подрядчика</b>\n\n"
+                    f"👷 ФИО подрядчика: {fio}\n"
+                    f"🏢 Компания: {company}\n"
+                    f"💼 Должность: {position}\n"
+                    f"🚗 Тип ТС: {'Легковой' if temp_pass.vehicle_type == 'car' else 'Грузовой'}\n"
+                    f"🔢 Номер: {temp_pass.car_number}\n"
+                    f"🚙 Марка: {temp_pass.car_brand}\n"
+                    f"📦 Тип груза: {temp_pass.cargo_type}\n"
+                    f"🎯 Цель визита: {temp_pass.purpose}\n"
+                    f"📅 Дата визита: {temp_pass.visit_date.strftime('%d.%m.%Y')} - "
+                    f"{(temp_pass.visit_date + timedelta(days=PASS_TIME)).strftime('%d.%m.%Y')}\n"
+                    f"💬 Комментарий владельца: {temp_pass.owner_comment or 'нет'}\n"
+                    f"📝 Комментарий для СБ: {temp_pass.security_comment or 'нет'}"
+                )
+                await callback.message.answer(text, parse_mode="HTML")
+                await asyncio.sleep(0.05)
+
+            # Формируем итоговое сообщение
+            if found:
+                reply_text = "🔍 Поиск осуществлен"
+            else:
+                reply_text = "❌ Актуальных временных пропусков не найдено"
+
+            await callback.message.answer(
+                reply_text,
+                reply_markup=InlineKeyboardMarkup(
+                    inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data="search_pass")]]
+                )
+            )
+            await callback.answer()
+    except Exception as e:
+        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
+        await asyncio.sleep(0.05)
