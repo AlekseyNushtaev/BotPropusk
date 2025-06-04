@@ -31,6 +31,7 @@ class Manager(Base):
     __tablename__ = 'manager'
     id: Mapped[int] = mapped_column(primary_key=True)
     phone: Mapped[str] = mapped_column(String(20), nullable=True)
+    fio: Mapped[str] = mapped_column(nullable=True)
     tg_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
     username: Mapped[str] = mapped_column(nullable=True)
     first_name: Mapped[str] = mapped_column(nullable=True)
@@ -44,6 +45,7 @@ class Security(Base):
     __tablename__ = 'security'
     id: Mapped[int] = mapped_column(primary_key=True)
     phone: Mapped[str] = mapped_column(String(20), nullable=True)
+    fio: Mapped[str] = mapped_column(nullable=True)
     tg_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
     username: Mapped[str] = mapped_column(nullable=True)
     first_name: Mapped[str] = mapped_column(nullable=True)

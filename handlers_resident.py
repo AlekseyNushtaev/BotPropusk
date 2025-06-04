@@ -201,6 +201,13 @@ async def process_work_types(message: Message, state: FSMContext):
             await session.commit()
 
             await message.answer("✅ Заявка на регистрацию подрядчика отправлена администратору!")
+            tg_ids = await get_active_admins_and_managers_tg_ids()
+            for tg_id in tg_ids:
+                await bot.send_message(
+                    tg_id,
+                    text=f'Поступила заявка на регистрацию подрядчика от резидента {resident.fio}.\n(Регистрация > Заявки подрядчиков от резидентов)',
+                    reply_markup=admin_reply_keyboard
+                )
             caption = (
                 f"👤 ФИО: {resident.fio}\n"
                 f"🏠 Номер участка: {resident.plot_number}"
@@ -285,7 +292,7 @@ async def process_car_model(message: Message, state: FSMContext):
 async def process_car_number(message: Message, state: FSMContext):
     try:
         await state.update_data(car_number=message.text)
-        await message.answer("Кому принадлежит машина?")
+        await message.answer("Кому из членов Вашей семьи принадлежит автомобиль?")
         await state.set_state(PermanentPassStates.INPUT_CAR_OWNER)
     except Exception as e:
         await bot.send_message(RAZRAB, f'{message.from_user.id} - {str(e)}')

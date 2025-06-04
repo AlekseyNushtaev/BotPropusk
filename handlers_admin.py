@@ -330,7 +330,7 @@ async def show_pending_requests(callback: CallbackQuery):
 
             buttons = [
                 [InlineKeyboardButton(
-                    text=f"Резидент - {req.resident_id}",
+                    text=f"{req.fio}",
                     callback_data=f"view_request_{req.id}"
                 )]
                 for req in requests
@@ -365,7 +365,7 @@ async def show_contractor_requests(callback: CallbackQuery):
 
             buttons = [
                 [InlineKeyboardButton(
-                    text=f"Подрядчик - {req.fio}",
+                    text=f"{req.company}_{req.position}",
                     callback_data=f"view_contractor_request_{req.id}"
                 )] for req in requests
             ]
@@ -829,7 +829,7 @@ async def update_fio(message: Message, state: FSMContext):
 async def start_reject(callback: CallbackQuery, state: FSMContext):
     try:
         await callback.message.answer("Введите комментарий для отклонения:")
-        await state.set_state(RegistrationRequestStates.AWAIT_REJECT_CONTRACTOR_COMMENT)
+        await state.set_state(RegistrationRequestStates.AWAIT_REJECT_COMMENT)
     except Exception as e:
         await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
         await asyncio.sleep(0.05)
@@ -870,7 +870,7 @@ async def reject_request(message: Message, state: FSMContext):
 async def start_reject(callback: CallbackQuery, state: FSMContext):
     try:
         await callback.message.answer("Введите комментарий для отклонения:")
-        await state.set_state(RegistrationRequestStates.AWAIT_REJECT_COMMENT)
+        await state.set_state(RegistrationRequestStates.AWAIT_REJECT_CONTRACTOR_COMMENT)
     except Exception as e:
         await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
         await asyncio.sleep(0.05)
@@ -915,13 +915,16 @@ async def show_resident_contractor_requests(callback: CallbackQuery):
                 .filter(ResidentContractorRequest.status == 'pending')
             )
             requests = result.scalars().all()
+            buttons = []
+            for req in requests:
+                resident = await session.get(Resident, req.resident_id)
 
-            buttons = [
-                [InlineKeyboardButton(
-                    text=f"Подрядчик от резидента #{req.id}",
-                    callback_data=f"view_resident_request_{req.id}"
-                )] for req in requests
-            ]
+                buttons.append(
+                    [InlineKeyboardButton(
+                        text=f"{resident.fio}",
+                        callback_data=f"view_resident_request_{req.id}"
+                    )]
+                )
 
             await callback.message.edit_text(
                 "Заявки на подрядчиков от резидентов:",
@@ -1058,7 +1061,7 @@ async def show_residents_list(callback: CallbackQuery):
             buttons = []
             for resident in residents:
                 # Формируем текст кнопки: ID и ФИО
-                button_text = f"{resident.id}_{resident.fio}"
+                button_text = f"{resident.fio}"
                 # Укорачиваем, если слишком длинное
                 if len(button_text) > 30:
                     button_text = button_text[:27] + "..."
@@ -1149,7 +1152,7 @@ async def show_contractors_list(callback: CallbackQuery):
             buttons = []
             for contractor in contractors:
                 # Формируем текст кнопки: ID и ФИО
-                button_text = f"{contractor.id}_{contractor.fio}"
+                button_text = f"{contractor.company}_{contractor.position}"
                 # Укорачиваем, если слишком длинное
                 if len(button_text) > 30:
                     button_text = button_text[:27] + "..."
@@ -1261,7 +1264,8 @@ async def execute_delete(callback: CallbackQuery, state: FSMContext):
             await session.execute(stmt3)
             await session.execute(stmt4)
             await session.execute(stmt5)
-
+            resident = await session.get(Resident, resident_id)
+            await bot.send_message(resident.tg_id, 'Вам ограничили доступ, если это случилось по ошибке обратитесь в управляющую компанию "Ели Estate"')
             # Удаляем резидента
             stmt6 = delete(Resident).where(Resident.id == resident_id)
             await session.execute(stmt6)
@@ -1327,7 +1331,9 @@ async def execute_delete_contractor(callback: CallbackQuery, state: FSMContext):
             )
             await session.execute(stmt1)
             await session.execute(stmt2)
-
+            contractor = await session.get(Contractor, contractor_id)
+            await bot.send_message(contractor.tg_id,
+                                   'Вам ограничили доступ, если это случилось по ошибке обратитесь в управляющую компанию "Ели Estate"')
             # Удаляем самого подрядчика
             stmt3 = delete(Contractor).where(Contractor.id == contractor_id)
             await session.execute(stmt3)
@@ -1364,7 +1370,7 @@ async def show_managers_list(callback: CallbackQuery):
 
             buttons = []
             for manager in managers:
-                button_text = f"{manager.id}_{manager.username}"
+                button_text = f"{manager.fio}"
                 if len(button_text) > 30:
                     button_text = button_text[:27] + "..."
 
@@ -1401,7 +1407,7 @@ async def show_security_list(callback: CallbackQuery):
 
             buttons = []
             for security in security_list:
-                button_text = f"{security.id}_{security.username}"
+                button_text = f"{security.fio}"
                 if len(button_text) > 30:
                     button_text = button_text[:27] + "..."
 
@@ -1436,6 +1442,7 @@ async def view_manager_details(callback: CallbackQuery):
 
             text = (
                 f"ID: {manager.id}\n"
+                f"ФИО: {manager.fio}\n"
                 f"Телефон: {manager.phone}\n"
                 f"Username: @{manager.username}\n"
                 f"TG ID: {manager.tg_id}\n"
@@ -1470,6 +1477,7 @@ async def view_security_details(callback: CallbackQuery):
 
             text = (
                 f"ID: {security.id}\n"
+                f"ФИО: {security.fio}\n"
                 f"Телефон: {security.phone}\n"
                 f"Username: @{security.username}\n"
                 f"TG ID: {security.tg_id}\n"
@@ -1529,6 +1537,9 @@ async def execute_delete_manager(callback: CallbackQuery, state: FSMContext):
     try:
         manager_id = int(callback.data.split("_")[-1])
         async with AsyncSessionLocal() as session:
+            manager = await session.get(Manager, manager_id)
+            await bot.send_message(manager.tg_id,
+                                   'Вам ограничили доступ, если это случилось по ошибке обратитесь в управляющую компанию "Ели Estate"')
             stmt = delete(Manager).where(Manager.id == manager_id)
             await session.execute(stmt)
             await session.commit()
@@ -1558,6 +1569,9 @@ async def execute_delete_security(callback: CallbackQuery, state: FSMContext):
     try:
         security_id = int(callback.data.split("_")[-1])
         async with AsyncSessionLocal() as session:
+            security = await session.get(Resident, security_id)
+            await bot.send_message(security.tg_id,
+                                   'Вам ограничили доступ, если это случилось по ошибке обратитесь в управляющую компанию "Ели Estate"')
             stmt = delete(Security).where(Security.id == security_id)
             await session.execute(stmt)
             await session.commit()

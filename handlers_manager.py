@@ -805,7 +805,7 @@ async def update_fio(message: Message, state: FSMContext):
 async def start_reject(callback: CallbackQuery, state: FSMContext):
     try:
         await callback.message.answer("Введите комментарий для отклонения:")
-        await state.set_state(RegistrationRequestStates.AWAIT_REJECT_CONTRACTOR_COMMENT)
+        await state.set_state(RegistrationRequestStates.AWAIT_REJECT_COMMENT)
     except Exception as e:
         await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
         await asyncio.sleep(0.05)
@@ -846,7 +846,7 @@ async def reject_request(message: Message, state: FSMContext):
 async def start_reject(callback: CallbackQuery, state: FSMContext):
     try:
         await callback.message.answer("Введите комментарий для отклонения:")
-        await state.set_state(RegistrationRequestStates.AWAIT_REJECT_COMMENT)
+        await state.set_state(RegistrationRequestStates.AWAIT_REJECT_CONTRACTOR_COMMENT)
     except Exception as e:
         await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
         await asyncio.sleep(0.05)
@@ -891,13 +891,16 @@ async def show_resident_contractor_requests(callback: CallbackQuery):
                 .filter(ResidentContractorRequest.status == 'pending')
             )
             requests = result.scalars().all()
+            buttons = []
+            for req in requests:
+                resident = await session.get(Resident, req.resident_id)
 
-            buttons = [
-                [InlineKeyboardButton(
-                    text=f"Подрядчик от резидента #{req.id}",
-                    callback_data=f"view_resident_request_{req.id}"
-                )] for req in requests
-            ]
+                buttons.append(
+                    [InlineKeyboardButton(
+                        text=f"{resident.fio}",
+                        callback_data=f"view_resident_request_{req.id}"
+                    )] for req in requests
+                )
 
             await callback.message.edit_text(
                 "Заявки на подрядчиков от резидентов:",
@@ -1033,7 +1036,7 @@ async def show_residents_list(callback: CallbackQuery):
             buttons = []
             for resident in residents:
                 # Формируем текст кнопки: ID и ФИО
-                button_text = f"{resident.id}_{resident.fio}"
+                button_text = f"{resident.fio}"
                 # Укорачиваем, если слишком длинное
                 if len(button_text) > 30:
                     button_text = button_text[:27] + "..."
@@ -1124,7 +1127,7 @@ async def show_contractors_list(callback: CallbackQuery):
             buttons = []
             for contractor in contractors:
                 # Формируем текст кнопки: ID и ФИО
-                button_text = f"{contractor.id}_{contractor.fio}"
+                button_text = f"{contractor.company}_{contractor.position}"
                 # Укорачиваем, если слишком длинное
                 if len(button_text) > 30:
                     button_text = button_text[:27] + "..."
