@@ -210,6 +210,8 @@ async def manage_category(callback: CallbackQuery, state: FSMContext):
                 [InlineKeyboardButton(text="Список СБ", callback_data="list_security")],
                 [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_manage")]
             ])
+        else:
+            return
 
         await callback.message.edit_text(
             text=f"Управление {user_type}:",
@@ -281,6 +283,8 @@ async def process_phone(message: Message, state: FSMContext):
                         [InlineKeyboardButton(text="Список СБ", callback_data="list_security")],
                         [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_manage")]
                     ])
+                else:
+                    return
 
                 await message.answer(
                     text=f"Управление {user_type}:",

@@ -100,8 +100,7 @@ async def show_temporary_passes(message: Union[Message, CallbackQuery], state: F
         if not requests:
             text = f"Нет пропусков со статусом '{status}'"
             if isinstance(message, CallbackQuery):
-                await message.edit_text(text, reply_markup=InlineKeyboardMarkup(
-                    inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data="temporary_passes_menu")]]))
+                await message.answer(text)
             else:
                 await message.answer(text, reply_markup=InlineKeyboardMarkup(
                     inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data="temporary_passes_menu")]]))

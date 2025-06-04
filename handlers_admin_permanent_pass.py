@@ -108,7 +108,7 @@ async def show_pending_passes(message: Union[Message, CallbackQuery], state: FSM
         if not requests:
             text = "Нет пропусков на подтверждении"
             if isinstance(message, CallbackQuery):
-                await message.edit_text(text)
+                await message.answer(text)
             else:
                 await message.answer(text)
             return
@@ -653,7 +653,7 @@ async def show_approved_passes(message: Union[Message, CallbackQuery], state: FS
         if not requests:
             text = "Нет подтвержденных пропусков"
             if isinstance(message, CallbackQuery):
-                await message.edit_text(text)
+                await message.answer(text)
             else:
                 await message.answer(text)
             return
@@ -792,7 +792,7 @@ async def show_rejected_passes(message: Union[Message, CallbackQuery], state: FS
         if not requests:
             text = "Нет отклоненных пропусков"
             if isinstance(message, CallbackQuery):
-                await message.edit_text(text)
+                await message.answer(text)
             else:
                 await message.answer(text)
             return
