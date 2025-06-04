@@ -1456,7 +1456,7 @@ async def view_manager_details(callback: CallbackQuery):
                 [InlineKeyboardButton(text="⬅️ Назад", callback_data="list_managers")]
             ])
 
-            await callback.message.answer(
+            await callback.message.edit_text(
                 text=text,
                 reply_markup=keyboard
             )
@@ -1491,7 +1491,7 @@ async def view_security_details(callback: CallbackQuery):
                 [InlineKeyboardButton(text="⬅️ Назад", callback_data="list_security")]
             ])
 
-            await callback.message.answer(
+            await callback.message.edit_text(
                 text=text,
                 reply_markup=keyboard
             )
@@ -1505,7 +1505,7 @@ async def view_security_details(callback: CallbackQuery):
 async def confirm_delete_manager(callback: CallbackQuery):
     try:
         manager_id = int(callback.data.split("_")[-1])
-        await callback.message.answer(
+        await callback.message.edit_text(
             "Вы точно хотите удалить менеджера?",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="✅ Да", callback_data=f"confirm_delete_manager_yes_{manager_id}")],
@@ -1520,7 +1520,7 @@ async def confirm_delete_manager(callback: CallbackQuery):
 async def confirm_delete_security(callback: CallbackQuery):
     try:
         security_id = int(callback.data.split("_")[-1])
-        await callback.message.answer(
+        await callback.message.edit_text(
             "Вы точно хотите удалить сотрудника СБ?",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="✅ Да", callback_data=f"confirm_delete_security_yes_{security_id}")],
@@ -1567,7 +1567,7 @@ async def execute_delete_security(callback: CallbackQuery, state: FSMContext):
     try:
         security_id = int(callback.data.split("_")[-1])
         async with AsyncSessionLocal() as session:
-            security = await session.get(Resident, security_id)
+            security = await session.get(Security, security_id)
             await bot.send_message(security.tg_id,
                                    'Вам ограничили доступ, если это случилось по ошибке обратитесь в управляющую компанию "Ели Estate"')
             stmt = delete(Security).where(Security.id == security_id)
@@ -1587,6 +1587,78 @@ async def execute_delete_security(callback: CallbackQuery, state: FSMContext):
             text=f"Управление security",
             reply_markup=keyboard
         )
+    except Exception as e:
+        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
+        await asyncio.sleep(0.05)
+
+
+@router.callback_query(F.data.startswith("confirm_delete_manager_no_"))
+async def execute_no_delete_manager(callback: CallbackQuery, state: FSMContext):
+    try:
+        manager_id = int(callback.data.split("_")[-1])
+        async with AsyncSessionLocal() as session:
+            manager = await session.get(Manager, manager_id)
+            if not manager:
+                await callback.answer("Менеджер не найден")
+                return
+
+            text = (
+                f"ID: {manager.id}\n"
+                f"ФИО: {manager.fio}\n"
+                f"Телефон: {manager.phone}\n"
+                f"Username: @{manager.username}\n"
+                f"TG ID: {manager.tg_id}\n"
+                f"Время добавления: {manager.time_add_to_db}\n"
+                f"Время регистрации: {manager.time_registration}\n"
+                f"Статус: {'Активен' if manager.status else 'Неактивен'}"
+            )
+
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🗑 Удалить", callback_data=f"delete_manager_{manager_id}")],
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="list_managers")]
+            ])
+
+            await callback.message.edit_text(
+                text=text,
+                reply_markup=keyboard
+            )
+            await callback.answer()
+    except Exception as e:
+        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
+        await asyncio.sleep(0.05)
+
+
+@router.callback_query(F.data.startswith("confirm_delete_security_no_"))
+async def execute_no_delete_security(callback: CallbackQuery, state: FSMContext):
+    try:
+        security_id = int(callback.data.split("_")[-1])
+        async with AsyncSessionLocal() as session:
+            security = await session.get(Security, security_id)
+            if not security:
+                await callback.answer("Сотрудник СБ не найден")
+                return
+
+            text = (
+                f"ID: {security.id}\n"
+                f"ФИО: {security.fio}\n"
+                f"Телефон: {security.phone}\n"
+                f"Username: @{security.username}\n"
+                f"TG ID: {security.tg_id}\n"
+                f"Время добавления: {security.time_add_to_db}\n"
+                f"Время регистрации: {security.time_registration}\n"
+                f"Статус: {'Активен' if security.status else 'Неактивен'}"
+            )
+
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🗑 Удалить", callback_data=f"delete_security_{security_id}")],
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="list_security")]
+            ])
+
+            await callback.message.edit_text(
+                text=text,
+                reply_markup=keyboard
+            )
+            await callback.answer()
     except Exception as e:
         await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
         await asyncio.sleep(0.05)
