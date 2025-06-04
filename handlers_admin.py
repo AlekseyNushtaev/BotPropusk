@@ -1547,16 +1547,14 @@ async def execute_delete_manager(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer("✅ Менеджер удален")
 
         # Возвращаемся в меню управления менеджерами
-        data = await state.get_data()
-        user_type = data['user_type']
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Добавить менеджера", callback_data=f"add_{user_type}")],
+            [InlineKeyboardButton(text="Добавить менеджера", callback_data=f"add_managers")],
             [InlineKeyboardButton(text="Список менеджеров", callback_data="list_managers")],
             [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_manage")]
         ])
 
         await callback.message.answer(
-            text=f"Управление {user_type}:",
+            text=f"Управление managers:",
             reply_markup=keyboard
         )
     except Exception as e:
@@ -1579,16 +1577,14 @@ async def execute_delete_security(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer("✅ Сотрудник СБ удален")
 
         # Возвращаемся в меню управления СБ
-        data = await state.get_data()
-        user_type = data['user_type']
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Добавить СБ", callback_data=f"add_{user_type}")],
+            [InlineKeyboardButton(text="Добавить СБ", callback_data=f"add_security")],
             [InlineKeyboardButton(text="Список СБ", callback_data="list_security")],
             [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_manage")]
         ])
 
         await callback.message.answer(
-            text=f"Управление {user_type}:",
+            text=f"Управление security",
             reply_markup=keyboard
         )
     except Exception as e:
