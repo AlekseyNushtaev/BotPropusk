@@ -147,6 +147,7 @@ async def process_phone_input(message: Message, state: FSMContext):
             return
 
         user_type, user_db = await check_phone_in_tables(phone)
+        print(user_type, user_db)
         data = {'phone': phone}
 
         if user_type in ['manager', 'security']:
@@ -171,7 +172,7 @@ async def process_phone_input(message: Message, state: FSMContext):
                 await state.clear()
                 if existing_request.status == 'pending':
                     await message.answer("Ваша заявка находится в обработке")
-                return
+                    return
             data['resident_id'] = user_db.id
             next_state = UserRegistration.INPUT_FIO
             prompt = "Введите ФИО:"
@@ -181,7 +182,7 @@ async def process_phone_input(message: Message, state: FSMContext):
                 await state.clear()
                 if existing_request.status == 'pending':
                     await message.answer("Ваша заявка находится в обработке")
-                return
+                    return
             data['contractor_id'] = user_db.id
             next_state = UserRegistration.INPUT_FIO_CONTRACTOR
             prompt = "Введите ФИО:"
@@ -211,18 +212,8 @@ async def process_fio_input(message: Message, state: FSMContext):
 @router.message(F.text, UserRegistration.INPUT_PLOT)
 async def process_plot_input(message: Message, state: FSMContext):
     try:
-        await state.update_data(plot_number=message.text)
-        await message.answer("Отправьте свое фото:")
-        await state.set_state(UserRegistration.INPUT_PHOTO)
-    except Exception as e:
-        await _handle_exception(message.from_user.id, e)
-
-
-@router.message(UserRegistration.INPUT_PHOTO, F.content_type == ContentType.PHOTO)
-async def process_photo_input(message: Message, state: FSMContext):
-    try:
         data = await state.get_data()
-        photo_id = message.photo[-1].file_id
+        plot_number = message.text
 
         async with AsyncSessionLocal() as session:
             new_request = RegistrationRequest(
@@ -232,8 +223,7 @@ async def process_photo_input(message: Message, state: FSMContext):
                 username=message.from_user.username,
                 first_name=message.from_user.first_name,
                 last_name=message.from_user.last_name,
-                plot_number=data['plot_number'],
-                photo_id=photo_id
+                plot_number=plot_number,
             )
             session.add(new_request)
             await session.commit()

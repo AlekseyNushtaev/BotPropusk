@@ -394,7 +394,7 @@ async def view_request_details(callback: CallbackQuery, state: FSMContext):
             await state.update_data(current_request_id=request_id)
 
             # Формируем сообщение с фото и данными
-            caption = (
+            text = (
                 f"ФИО: {request.fio}\n"
                 f"Участок: {request.plot_number}\n"
                 f"TG ID: {request.tg_id}\n"
@@ -409,10 +409,8 @@ async def view_request_details(callback: CallbackQuery, state: FSMContext):
                 [InlineKeyboardButton(text="⬅️ Назад", callback_data="registration_requests")]
             ])
 
-            await bot.send_photo(
-                chat_id=callback.from_user.id,
-                photo=request.photo_id,
-                caption=caption,
+            await callback.message.edit_text(
+                text=text,
                 reply_markup=keyboard
             )
             await callback.answer()
@@ -481,7 +479,7 @@ async def approve_request(callback: CallbackQuery, state: FSMContext):
                 reply_markup=admin_reply_keyboard
             )
 
-            await callback.message.edit_caption(caption="✅ Заявка одобрена")
+            await callback.message.answer(text="✅ Заявка одобрена")
             await callback.message.answer(
                 text="Меню регистрации:",
                 reply_markup=get_registration_menu()
@@ -564,7 +562,7 @@ async def finish_editing(callback: CallbackQuery, state: FSMContext):
             request = await session.get(RegistrationRequest, request_id)
 
             # Формируем обновленное сообщение
-            caption = (
+            text = (
                 f"ФИО: {request.fio}\n"
                 f"Участок: {request.plot_number}\n"
                 f"TG ID: {request.tg_id}\n"
@@ -579,17 +577,10 @@ async def finish_editing(callback: CallbackQuery, state: FSMContext):
                 [InlineKeyboardButton(text="⬅️ Назад", callback_data="requests")]
             ])
 
-            # Удаляем старое сообщение с редактором
-            await bot.delete_message(
-                chat_id=callback.message.chat.id,
-                message_id=callback.message.message_id
-            )
 
             # Отправляем новое сообщение с актуальными данными
-            await bot.send_photo(
-                chat_id=callback.message.chat.id,
-                photo=request.photo_id,
-                caption=caption,
+            await callback.message.edit_text(
+                text=text,
                 reply_markup=keyboard
             )
 
@@ -625,15 +616,8 @@ async def finish_editing(callback: CallbackQuery, state: FSMContext):
                 [InlineKeyboardButton(text="⬅️ Назад", callback_data="contractor_requests")]
             ])
 
-            # Удаляем старое сообщение с редактором
-            await bot.delete_message(
-                chat_id=callback.message.chat.id,
-                message_id=callback.message.message_id
-            )
-
             # Отправляем новое сообщение с актуальными данными
-            await bot.send_message(
-                chat_id=callback.message.chat.id,
+            await callback.message.edit_text(
                 text=text,
                 reply_markup=keyboard
             )
@@ -690,16 +674,14 @@ async def update_fio(message: Message, state: FSMContext):
             request.fio = message.text
             await session.commit()
             # Формируем сообщение с фото и данными
-            caption = (
+            text = (
                 f"ФИО: {message.text}\n"
                 f"Участок: {request.plot_number}\n"
                 f"TG ID: {request.tg_id}\n"
                 f"Username: @{request.username}"
             )
-            await bot.send_photo(
-                chat_id=message.from_user.id,
-                photo=request.photo_id,
-                caption=caption,
+            await message.answer(
+                text=text,
                 reply_markup=edit_keyboard_resident()
             )
         await state.set_state(RegistrationRequestStates.EDITING_REQUEST)
@@ -805,17 +787,15 @@ async def update_fio(message: Message, state: FSMContext):
             request.plot_number = message.text
             await session.commit()
             # Формируем сообщение с фото и данными
-            caption = (
+            text = (
                 f"ФИО: {request.fio}\n"
                 f"Участок: {message.text}\n"
                 f"TG ID: {request.tg_id}\n"
                 f"Username: @{request.username}"
             )
 
-            await bot.send_photo(
-                chat_id=message.from_user.id,
-                photo=request.photo_id,
-                caption=caption,
+            await message.answer(
+                text=text,
                 reply_markup=edit_keyboard_resident()
             )
         await state.set_state(RegistrationRequestStates.EDITING_REQUEST)
@@ -1115,19 +1095,10 @@ async def view_resident_details(callback: CallbackQuery):
                 [InlineKeyboardButton(text="⬅️ Назад", callback_data="list_residents")]
             ])
 
-            # Отправляем фото, если есть
-            if resident.photo_id:
-                await bot.send_photo(
-                    chat_id=callback.from_user.id,
-                    photo=resident.photo_id,
-                    caption=text,
-                    reply_markup=keyboard
-                )
-            else:
-                await callback.message.answer(
-                    text=text,
-                    reply_markup=keyboard
-                )
+            await callback.message.edit_text(
+                text=text,
+                reply_markup=keyboard
+            )
             await callback.answer()
     except Exception as e:
         await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
@@ -1211,7 +1182,7 @@ async def view_contractor_details(callback: CallbackQuery):
                 [InlineKeyboardButton(text="⬅️ Назад", callback_data="list_contractors")]
             ])
 
-            await callback.message.answer(
+            await callback.message.edit_text(
                 text=text,
                 reply_markup=keyboard
             )
@@ -1662,4 +1633,3 @@ async def execute_no_delete_security(callback: CallbackQuery, state: FSMContext)
     except Exception as e:
         await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
         await asyncio.sleep(0.05)
-

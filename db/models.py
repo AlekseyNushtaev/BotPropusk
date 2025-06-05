@@ -61,7 +61,6 @@ class Resident(Base):
     phone: Mapped[str] = mapped_column(String(20), nullable=True)
     fio: Mapped[str] = mapped_column(nullable=True)
     plot_number: Mapped[str] = mapped_column(nullable=True)
-    photo_id: Mapped[str] = mapped_column(nullable=True)
     tg_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
     username: Mapped[str] = mapped_column(nullable=True)
     first_name: Mapped[str] = mapped_column(nullable=True)

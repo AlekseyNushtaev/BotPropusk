@@ -11,6 +11,7 @@ from aiogram.fsm.context import FSMContext
 from sqlalchemy import select, func
 
 from bot import bot
+from date_parser import parse_date
 from db.models import AsyncSessionLocal, Resident, Contractor, TemporaryPass
 from config import ADMIN_IDS, PAGE_SIZE, RAZRAB
 from filters import IsAdminOrManager
@@ -484,7 +485,7 @@ async def handle_edit_temp_pass_actions(callback: CallbackQuery, state: FSMConte
             await callback.message.answer("Введите новую цель визита:")
             await state.set_state(TemporaryPassStates.AWAIT_EDIT_PURPOSE)
         elif action == "visit_date":
-            await callback.message.answer("Введите новую дату визита (в формате ДД.ММ.ГГГГ):")
+            await callback.message.answer("Введите новую дату визита (в формате ДД.ММ, ДД.ММ.ГГГГ или например '5 июня'):")
             await state.set_state(TemporaryPassStates.AWAIT_EDIT_VISIT_DATE)
         elif action == "comment":
             await callback.message.answer("Введите новый комментарий владельца:")
@@ -573,7 +574,22 @@ async def update_temp_purpose(message: Message, state: FSMContext):
 @router.message(F.text, TemporaryPassStates.AWAIT_EDIT_VISIT_DATE)
 async def update_temp_visit_date(message: Message, state: FSMContext):
     try:
-        visit_date = datetime.datetime.strptime(message.text, "%d.%m.%Y").date()
+        user_input = message.text.strip()
+        visit_date = parse_date(user_input)
+        now = datetime.datetime.now().date()
+
+        if not visit_date:
+            await message.answer("❌ Неверный формат даты! Введите в формате ДД.ММ, ДД.ММ.ГГГГ или например '5 июня'")
+            return
+
+        if visit_date < now:
+            await message.answer("Дата не может быть меньше текущей даты. Введите снова:")
+            return
+
+        max_date = now + datetime.timedelta(days=31)
+        if visit_date > max_date:
+            await message.answer("Пропуск нельзя заказать на месяц вперед. Введите снова:")
+            return
         data = await state.get_data()
         pass_id = data.get('current_temp_pass_id')
 
@@ -583,8 +599,9 @@ async def update_temp_visit_date(message: Message, state: FSMContext):
             await session.commit()
             await update_temp_pass_view(message, pass_request, session)
         await state.set_state(TemporaryPassStates.EDITING_PASS)
-    except ValueError:
-        await message.answer("❌ Неверный формат даты! Введите в формате ДД.ММ.ГГГГ")
+    except Exception as e:
+        await bot.send_message(RAZRAB, f'{message.from_user.id} - {str(e)}')
+        await asyncio.sleep(0.05)
 
 
 # Обновление комментария владельца

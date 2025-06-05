@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import random
 from typing import Union
 
 from aiogram import Router, F
@@ -13,6 +14,7 @@ from sqlalchemy import select, func
 
 from bot import bot
 from config import PAGE_SIZE, RAZRAB, PASS_TIME, MAX_CAR_PASSES, MAX_TRUCK_PASSES
+from date_parser import parse_date
 from db.models import Resident, AsyncSessionLocal, ResidentContractorRequest, PermanentPass, Contractor, TemporaryPass
 from db.util import get_active_admins_and_managers_tg_ids
 from filters import IsResident, IsContractor
@@ -252,7 +254,7 @@ async def process_cargo_type(message: Message, state: FSMContext):
 async def process_purpose(message: Message, state: FSMContext):
     try:
         await state.update_data(purpose=message.text)
-        await message.answer("Введите дату приезда (в формате ДД.ММ.ГГГГ):")
+        await message.answer("Введите дату приезда (в формате ДД.ММ, ДД.ММ.ГГГГ или например '5 июня'):")
         await state.set_state(TemporaryPassStates.INPUT_VISIT_DATE)
     except Exception as e:
         await bot.send_message(RAZRAB, f'{message.from_user.id} - {str(e)}')
@@ -262,19 +264,26 @@ async def process_purpose(message: Message, state: FSMContext):
 # Обработка даты приезда с валидацией
 @router.message(F.text, TemporaryPassStates.INPUT_VISIT_DATE)
 async def process_visit_date(message: Message, state: FSMContext):
-    try:
-        visit_date = datetime.datetime.strptime(message.text, "%d.%m.%Y").date()
-        if visit_date < datetime.datetime.now().date():
-            await message.answer("Дата не может быть меньше текущей даты. Введите снова:")
-            return
-        if visit_date > (datetime.datetime.now() + datetime.timedelta(days=31)).date():
-            await message.answer("Пропуск нельзя заказать на месяц вперед. Введите снова:")
-            return
-        await state.update_data(visit_date=visit_date)
-        await message.answer("Добавьте комментарий (если не требуется, напишите нет):")
-        await state.set_state(TemporaryPassStates.INPUT_COMMENT)
-    except ValueError:
-        await message.answer("❌ Неверный формат даты! Введите в формате ДД.ММ.ГГГГ")
+    user_input = message.text.strip()
+    visit_date = parse_date(user_input)
+    now = datetime.datetime.now().date()
+
+    if not visit_date:
+        await message.answer("❌ Неверный формат даты! Введите в формате ДД.ММ, ДД.ММ.ГГГГ или например '5 июня'")
+        return
+
+    if visit_date < now:
+        await message.answer("Дата не может быть меньше текущей даты. Введите снова:")
+        return
+
+    max_date = now + datetime.timedelta(days=31)
+    if visit_date > max_date:
+        await message.answer("Пропуск нельзя заказать на месяц вперед. Введите снова:")
+        return
+
+    await state.update_data(visit_date=visit_date)
+    await message.answer("Добавьте комментарий (если не требуется, напишите 'нет'):")
+    await state.set_state(TemporaryPassStates.INPUT_COMMENT)
 
 
 # Обработка комментария и сохранение данных
@@ -300,10 +309,15 @@ async def process_comment_and_save(message: Message, state: FSMContext):
             # Даты для нового пропуска
             new_visit_date = data['visit_date']
             new_end_date = new_visit_date + datetime.timedelta(days=PASS_TIME)
-
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="Оформить временный пропуск", callback_data="create_temporary_pass")],
+                [InlineKeyboardButton(text="Назад", callback_data="back_to_main_menu")]
+            ])
+            await message.answer("✅ Заявка на временный пропуск отправлена на рассмотрение!", reply_markup=keyboard)
             # Проверка лимитов для легковых автомобилей
             if data['vehicle_type'] == 'car':
                 # Получаем все подходящие пропуска
+                await asyncio.sleep(random.randint(180, 720))
                 result = await session.execute(
                     select(TemporaryPass).where(
                         TemporaryPass.contractor_id == contractor.id,
@@ -322,7 +336,7 @@ async def process_comment_and_save(message: Message, state: FSMContext):
             elif (data['vehicle_type'] == 'truck' and
                   data.get('weight_category') == 'light' and
                   data.get('length_category') == 'short'):
-
+                await asyncio.sleep(random.randint(180, 720))
                 # Проверяем количество подтвержденных малых грузовых пропусков, пересекающихся по датам
                 result = await session.execute(
                     select(TemporaryPass).where(
@@ -358,14 +372,17 @@ async def process_comment_and_save(message: Message, state: FSMContext):
 
             session.add(new_pass)
             await session.commit()
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Оформить временный пропуск", callback_data="create_temporary_pass")],
-            [InlineKeyboardButton(text="Назад", callback_data="back_to_main_menu")]
-        ])
         if status == "approved":
-            await message.answer("✅ Ваш временный пропуск одобрен автоматически!", reply_markup=keyboard)
+            await message.answer(f"✅ Ваш временный пропуск одобрен на машину с номером {data.get("car_number").upper()}", reply_markup=keyboard)
+            tg_ids = await get_active_admins_and_managers_tg_ids()
+            for tg_id in tg_ids:
+                await bot.send_message(
+                    tg_id,
+                    text=f'Пропуск от подрядчика {contractor.company}_{contractor.position} на машину с номером {data.get("car_number").upper()} одобрен автоматически.\n(Пропуска > Временные пропуска > Подтвержденные)',
+                    reply_markup=admin_reply_keyboard
+                )
+                await asyncio.sleep(0.05)
         else:
-            await message.answer("✅ Заявка на временный пропуск отправлена на рассмотрение!", reply_markup=keyboard)
             tg_ids = await get_active_admins_and_managers_tg_ids()
             for tg_id in tg_ids:
                 await bot.send_message(
