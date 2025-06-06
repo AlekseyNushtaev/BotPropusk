@@ -388,7 +388,7 @@ async def process_comment_and_save(message: Message, state: FSMContext):
             session.add(new_pass)
             await session.commit()
         if status == "approved":
-            await message.answer(f"✅ Ваш временный пропуск одобрен на машину с номером {data.get("car_number").upper()}", reply_markup=keyboard)
+            await message.answer(f"✅ Ваш временный пропуск одобрен на машину с номером {data.get('car_number').upper()}", reply_markup=keyboard)
             tg_ids = await get_active_admins_and_managers_tg_ids()
             for tg_id in tg_ids:
                 await bot.send_message(
