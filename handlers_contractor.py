@@ -15,7 +15,8 @@ from sqlalchemy import select, func
 from bot import bot
 from config import PAGE_SIZE, RAZRAB, PASS_TIME, MAX_CAR_PASSES, MAX_TRUCK_PASSES
 from date_parser import parse_date
-from db.models import Resident, AsyncSessionLocal, ResidentContractorRequest, PermanentPass, Contractor, TemporaryPass
+from db.models import Resident, AsyncSessionLocal, ResidentContractorRequest, PermanentPass, Contractor, TemporaryPass, \
+    ContractorContractorRequest
 from db.util import get_active_admins_and_managers_tg_ids
 from filters import IsResident, IsContractor
 from handlers_admin import admin_reply_keyboard
@@ -23,6 +24,11 @@ from handlers_admin import admin_reply_keyboard
 router = Router()
 router.message.filter(IsContractor())  # Применяем фильтр подрядчика ко всем хендлерам сообщений
 router.callback_query.filter(IsContractor())  # Применяем фильтр подрядчика ко всем хендлерам колбеков
+
+
+class ContractorContractorRegistration(StatesGroup):
+    INPUT_PHONE = State()
+    INPUT_WORK_TYPES = State()
 
 
 class TemporaryPassViewStates(StatesGroup):
@@ -82,11 +88,15 @@ async def main_menu(message: Message):
                 f"Компания: {contractor.company}\n"
                 f"Должность: {contractor.position}\n"
             )
-
-            # Обновленная клавиатура с новой кнопкой
-            inline_kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="Временные пропуска", callback_data="temporary_pass_menu")]
-            ])
+            if contractor.can_add_contractor:
+                inline_kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="Зарегистрировать субподрядчика", callback_data="register_contractor")],
+                    [InlineKeyboardButton(text="Временные пропуска", callback_data="temporary_pass_menu")]
+                ])
+            else:
+                inline_kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="Временные пропуска", callback_data="temporary_pass_menu")]
+                ])
 
             await message.answer(
                 text=text,
@@ -116,10 +126,15 @@ async def main_menu(callback: CallbackQuery):
                 f"Должность: {contractor.position}\n"
             )
 
-            # Обновленная клавиатура с новой кнопкой
-            inline_kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="Временные пропуска", callback_data="temporary_pass_menu")]
-            ])
+            if contractor.can_add_contractor:
+                inline_kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="Зарегистрировать субподрядчика", callback_data="register_contractor")],
+                    [InlineKeyboardButton(text="Временные пропуска", callback_data="temporary_pass_menu")]
+                ])
+            else:
+                inline_kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="Временные пропуска", callback_data="temporary_pass_menu")]
+                ])
 
             await callback.message.edit_text(
                 text=text,
@@ -625,3 +640,76 @@ async def back_to_my_temp_passes(callback: CallbackQuery, state: FSMContext):
     except Exception as e:
         await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
         await asyncio.sleep(0.05)
+
+
+@router.callback_query(F.data == "register_contractor")
+async def start_contractor_registration(callback: CallbackQuery, state: FSMContext):
+    try:
+        await callback.message.answer("Введите телефон подрядчика:")
+        await state.set_state(ContractorContractorRegistration.INPUT_PHONE)
+    except Exception as e:
+        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
+        await asyncio.sleep(0.05)
+
+
+@router.message(F.text, ContractorContractorRegistration.INPUT_PHONE)
+async def process_contractor_phone(message: Message, state: FSMContext):
+    try:
+        await state.update_data(phone=message.text)
+        await message.answer("Укажите виды выполняемых работ:")
+        await state.set_state(ContractorContractorRegistration.INPUT_WORK_TYPES)
+    except Exception as e:
+        await bot.send_message(RAZRAB, f'{message.from_user.id} - {str(e)}')
+        await asyncio.sleep(0.05)
+
+
+@router.message(F.text, ContractorContractorRegistration.INPUT_WORK_TYPES)
+async def process_work_types(message: Message, state: FSMContext):
+    try:
+        data = await state.get_data()
+
+        async with AsyncSessionLocal() as session:
+            contractor = await session.execute(
+                select(Contractor).where(Contractor.tg_id == message.from_user.id))
+            contractor = contractor.scalar()
+
+            new_request = ContractorContractorRequest(
+                contractor_id=contractor.id,
+                phone=data['phone'],
+                work_types=message.text
+            )
+            session.add(new_request)
+            await session.commit()
+
+            await message.answer("✅ Заявка на регистрацию субподрядчика отправлена администратору!")
+            tg_ids = await get_active_admins_and_managers_tg_ids()
+            for tg_id in tg_ids:
+                await bot.send_message(
+                    tg_id,
+                    text=f'Поступила заявка на регистрацию субподрядчика от подрядчика {contractor.company}_{contractor.position}.\n(Регистрация > Заявки субподрядчиков от подрядчиков)',
+                    reply_markup=admin_reply_keyboard
+                )
+            text = (
+                f"ФИО: {contractor.fio}\n"
+                f"Компания: {contractor.company}\n"
+                f"Должность: {contractor.position}\n"
+            )
+            if contractor.can_add_contractor:
+                inline_kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="Зарегистрировать субподрядчика", callback_data="register_contractor")],
+                    [InlineKeyboardButton(text="Временные пропуска", callback_data="temporary_pass_menu")]
+                ])
+            else:
+                inline_kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="Временные пропуска", callback_data="temporary_pass_menu")]
+                ])
+
+            await message.answer(
+                text=text,
+                reply_markup=inline_kb
+            )
+            await state.clear()
+    except Exception as e:
+        await bot.send_message(RAZRAB, f'{message.from_user.id} - {str(e)}')
+        await asyncio.sleep(0.05)
+        

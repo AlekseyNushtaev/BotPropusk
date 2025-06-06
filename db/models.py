@@ -30,6 +30,7 @@ class User(Base):
 class Manager(Base):
     __tablename__ = 'manager'
     id: Mapped[int] = mapped_column(primary_key=True)
+    start_key: Mapped[str] = mapped_column(String(20), nullable=True)
     phone: Mapped[str] = mapped_column(String(20), nullable=True)
     fio: Mapped[str] = mapped_column(nullable=True)
     tg_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
@@ -44,6 +45,7 @@ class Manager(Base):
 class Security(Base):
     __tablename__ = 'security'
     id: Mapped[int] = mapped_column(primary_key=True)
+    start_key: Mapped[str] = mapped_column(String(20), nullable=True)
     phone: Mapped[str] = mapped_column(String(20), nullable=True)
     fio: Mapped[str] = mapped_column(nullable=True)
     tg_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
@@ -58,6 +60,7 @@ class Security(Base):
 class Resident(Base):
     __tablename__ = 'resident'
     id: Mapped[int] = mapped_column(primary_key=True)
+    start_key: Mapped[str] = mapped_column(String(20), nullable=True)
     phone: Mapped[str] = mapped_column(String(20), nullable=True)
     fio: Mapped[str] = mapped_column(nullable=True)
     plot_number: Mapped[str] = mapped_column(nullable=True)
@@ -74,6 +77,7 @@ class Resident(Base):
 class Contractor(Base):
     __tablename__ = 'contractor'
     id: Mapped[int] = mapped_column(primary_key=True)
+    start_key: Mapped[str] = mapped_column(String(20), nullable=True)
     phone: Mapped[str] = mapped_column(String(20), nullable=True)
     work_types: Mapped[str] = mapped_column(nullable=True)  # Добавлено
     company: Mapped[str] = mapped_column(nullable=True)  # Добавлено
@@ -87,6 +91,7 @@ class Contractor(Base):
     time_add_to_db: Mapped[datetime.datetime] = mapped_column(default=datetime.datetime.now)
     time_registration: Mapped[datetime.datetime] = mapped_column(nullable=True)
     status: Mapped[bool] = mapped_column(Boolean, default=False)
+    can_add_contractor: Mapped[bool] = mapped_column(Boolean, default=False)
     requests = relationship("ContractorRegistrationRequest", back_populates="contractor")
 
 
@@ -137,10 +142,22 @@ class ResidentContractorRequest(Base):
     resident_id: Mapped[int] = mapped_column(ForeignKey('resident.id'))
     phone: Mapped[str] = mapped_column(String(20))
     work_types: Mapped[str] = mapped_column(nullable=True)
-    status: Mapped[str] = mapped_column(default='pending') # pending/approved/rejected
+    status: Mapped[str] = mapped_column(default='pending')
     admin_comment: Mapped[str] = mapped_column(nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(default=datetime.datetime.now)
     resident = relationship("Resident")
+
+
+class ContractorContractorRequest(Base):
+    __tablename__ = 'contractor_contractor_request'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    contractor_id: Mapped[int] = mapped_column(ForeignKey('contractor.id'))
+    phone: Mapped[str] = mapped_column(String(20))
+    work_types: Mapped[str] = mapped_column(nullable=True)
+    status: Mapped[str] = mapped_column(default='pending')
+    admin_comment: Mapped[str] = mapped_column(nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(default=datetime.datetime.now)
+    contractor = relationship("Contractor")
 
 
 class PermanentPass(Base):

@@ -12,7 +12,8 @@ from sqlalchemy import select, delete
 from bot import bot
 from config import RAZRAB
 from db.models import Manager, Security, Resident, Contractor, RegistrationRequest, \
-    ContractorRegistrationRequest, AsyncSessionLocal, ResidentContractorRequest, TemporaryPass, PermanentPass, Appeal
+    ContractorRegistrationRequest, AsyncSessionLocal, ResidentContractorRequest, TemporaryPass, PermanentPass, Appeal, \
+    ContractorContractorRequest
 from filters import IsManager
 
 router = Router()
@@ -27,6 +28,7 @@ class AddUserStates(StatesGroup):
 
 class RegistrationRequestStates(StatesGroup):
     AWAIT_REJECT_RESIDENT_COMMENT = State()
+    AWAIT_REJECT_SUBCONTRACTOR_COMMENT = State()
     AWAIT_EDIT_COMPANY = State()  # Добавлено
     AWAIT_EDIT_POSITION = State()  # Добавлено
     AWAIT_EDIT_CONTRACTOR_FIO = State()
@@ -80,6 +82,8 @@ def get_registration_menu():
         [InlineKeyboardButton(text="Регистрация резидентов", callback_data="registration_requests")],
         [InlineKeyboardButton(text="Регистрация подрядчиков", callback_data="contractor_requests")],
         [InlineKeyboardButton(text="Заявки подрядчиков от резидентов", callback_data="resident_contractor_requests")],
+        [InlineKeyboardButton(text="Заявки субподрядчиков от подрядчиков",
+                              callback_data="contractor_contractor_requests")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_main")]
     ])
 
@@ -1154,12 +1158,20 @@ async def view_contractor_details(callback: CallbackQuery):
                 f"Должность: {contractor.position}\n"
                 f"Принадлежность: {contractor.affiliation}\n"
                 f"TG: @{contractor.username}\n"
+                f"Возможность добавлять субподрядчиков: {contractor.can_add_contractor}\n"
                 f"Время регистрации: {contractor.time_registration}"
             )
 
             # Клавиатура с кнопкой "Назад" к списку подрядчиков
+            if contractor.can_add_contractor == False:
+                text_admin = '✅Подрядчик-администратор'
+            else:
+                text_admin = '❌Подрядчик-администратор'
+
+            # Клавиатура с кнопкой "Назад" к списку подрядчиков
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🗑 Удалить", callback_data=f"delete_contractor_{contractor_id}")],
+                [InlineKeyboardButton(text=text_admin, callback_data=f"change_admin_{contractor_id}")],
                 [InlineKeyboardButton(text="⬅️ Назад", callback_data="list_contractors")]
             ])
 
@@ -1303,4 +1315,189 @@ async def execute_delete_contractor(callback: CallbackQuery, state: FSMContext):
         )
     except Exception as e:
         await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
+        await asyncio.sleep(0.05)
+
+
+@router.callback_query(F.data.startswith("change_admin_"))
+async def change_contractor_admin(callback: CallbackQuery):
+    try:
+        contractor_id = int(callback.data.split("_")[-1])
+        async with AsyncSessionLocal() as session:
+            contractor = await session.get(Contractor, contractor_id)
+            if not contractor:
+                await callback.answer("Подрядчик не найден")
+                return
+
+            # Формируем текст
+            text = (
+                f"ID: {contractor.id}\n"
+                f"ФИО: {contractor.fio}\n"
+                f"Телефон: {contractor.phone}\n"
+                f"Компания: {contractor.company}\n"
+                f"Должность: {contractor.position}\n"
+                f"Принадлежность: {contractor.affiliation}\n"
+                f"TG: @{contractor.username}\n"
+                f"Возможность добавлять субподрядчиков: {not contractor.can_add_contractor}\n"
+                f"Время регистрации: {contractor.time_registration}"
+            )
+            if contractor.can_add_contractor == False:
+                text_admin = '✅Подрядчик-администратор'
+            else:
+                text_admin = '❌Подрядчик-администратор'
+
+            # Клавиатура с кнопкой "Назад" к списку подрядчиков
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🗑 Удалить", callback_data=f"delete_contractor_{contractor_id}")],
+                [InlineKeyboardButton(text=text_admin, callback_data=f"change_admin_{contractor_id}")],
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="list_contractors")]
+            ])
+
+            await callback.message.edit_text(
+                text=text,
+                reply_markup=keyboard
+            )
+            await callback.answer()
+            contractor.can_add_contractor = not contractor.can_add_contractor
+            await session.commit()
+    except Exception as e:
+        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
+        await asyncio.sleep(0.05)
+
+
+@router.callback_query(F.data == "contractor_contractor_requests")
+async def show_subcontractor_requests(callback: CallbackQuery):
+    try:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(ContractorContractorRequest)
+                .filter(ContractorContractorRequest.status == 'pending')
+            )
+            requests = result.scalars().all()
+            buttons = []
+            for req in requests:
+                contractor = await session.get(Contractor, req.contractor_id)
+
+                buttons.append(
+                    [InlineKeyboardButton(
+                        text=f"{contractor.company}_{contractor.position}",
+                        callback_data=f"view_subcontractor_request_{req.id}"
+                    )]
+                )
+
+            await callback.message.edit_text(
+                "Заявки на субподрядчиков от подрядчиков:",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    *buttons,
+                    [InlineKeyboardButton(text="⬅️ Назад", callback_data="registration_menu")]]
+                )
+            )
+    except Exception as e:
+        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
+        await asyncio.sleep(0.05)
+
+
+@router.callback_query(F.data.startswith("view_subcontractor_request_"))
+async def view_subcontractor_request(callback: CallbackQuery, state: FSMContext):
+    try:
+        request_id = int(callback.data.split("_")[-1])
+        await state.update_data(current_subcontractor_request_id=request_id)
+
+        async with AsyncSessionLocal() as session:
+            request = await session.get(ContractorContractorRequest, request_id)
+            contractor = await session.get(Contractor, request.contractor_id)
+
+            text = (
+                f"📱 Телефон: {request.phone}\n"
+                f"🏗 Виды работ: {request.work_types}\n"
+                f"👤 Подрядчик: {contractor.company}_{contractor.position}_{contractor.fio}"
+            )
+
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="✅ Одобрить", callback_data="approve_subcontractor_request")],
+                [InlineKeyboardButton(text="❌ Отклонить", callback_data="reject_subcontractor_request")]
+            ])
+
+            await callback.message.edit_text(text, reply_markup=keyboard)
+    except Exception as e:
+        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
+        await asyncio.sleep(0.05)
+
+
+# Одобрение заявки
+@router.callback_query(F.data == "approve_subcontractor_request")
+async def approve_subcontractor_request(callback: CallbackQuery, state: FSMContext):
+    try:
+        data = await state.get_data()
+        request_id = data['current_subcontractor_request_id']
+
+        async with AsyncSessionLocal() as session:
+            request = await session.get(ContractorContractorRequest, request_id)
+            contractor = await session.get(Contractor, request.contractor_id)
+
+            # Создаем запись подрядчика
+            new_contractor = Contractor(
+                phone=request.phone,
+                work_types=request.work_types,
+                affiliation=f"{contractor.id}_{contractor.company}_{contractor.position}_{contractor.fio}",
+                status=False  # Требует завершения регистрации
+            )
+            session.add(new_contractor)
+            await session.commit()
+
+            # Обновляем статус заявки
+            request.status = 'approved'
+            await session.commit()
+
+        await bot.send_message(
+            chat_id=contractor.tg_id,
+            text=f"🎉 Заявка на регистрацию Вашего субподрядчика ({request.phone}) одобрена! Для завершения регистрации субподрядчика, перешлите "
+                 "субподрядчику ссылку на бот, субподрядчик должен ввести номер телефона, который вы указали для его регистрации.",
+            reply_markup=admin_reply_keyboard
+        )
+        await callback.message.edit_text("✅ Заявка одобрена!")
+        await callback.message.answer(
+            text="Меню регистрации:",
+            reply_markup=get_registration_menu()
+        )
+    except Exception as e:
+        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
+        await asyncio.sleep(0.05)
+
+
+@router.callback_query(F.data == "reject_subcontractor_request")
+async def reject_subcontractor_request(callback: CallbackQuery, state: FSMContext):
+    try:
+        await callback.message.answer("Введите причину отклонения:")
+        await state.set_state(RegistrationRequestStates.AWAIT_REJECT_SUBCONTRACTOR_COMMENT)
+    except Exception as e:
+        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
+        await asyncio.sleep(0.05)
+
+
+@router.message(F.text, RegistrationRequestStates.AWAIT_REJECT_SUBCONTRACTOR_COMMENT)
+async def process_reject_comment(message: Message, state: FSMContext):
+    try:
+        data = await state.get_data()
+        request_id = data['current_subcontractor_request_id']
+
+        async with AsyncSessionLocal() as session:
+            request = await session.get(ContractorContractorRequest, request_id)
+            contractor = await session.get(Contractor, request.contractor_id)
+            request.status = 'rejected'
+            request.admin_comment = message.text
+            await session.commit()
+
+        await bot.send_message(
+            chat_id=contractor.tg_id,
+            text=f"❌ Заявка на регистрацию Вашего субподрядчика ({request.phone}) отклонена!\nПричина: {message.text}",
+            reply_markup=admin_reply_keyboard
+        )
+        await message.answer("❌ Заявка отклонена!")
+        await message.answer(
+            text="Меню регистрации:",
+            reply_markup=get_registration_menu()
+        )
+        await state.clear()
+    except Exception as e:
+        await bot.send_message(RAZRAB, f'{message.from_user.id} - {str(e)}')
         await asyncio.sleep(0.05)

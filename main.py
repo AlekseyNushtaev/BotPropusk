@@ -5,6 +5,7 @@ import handlers_admin
 import handlers_admin_appeal
 import handlers_admin_permanent_pass
 import handlers_admin_search
+import handlers_admin_self_pass
 import handlers_admin_statistic
 import handlers_admin_temporary_pass
 import handlers_contractor
@@ -28,6 +29,7 @@ async def main() -> None:
 
     dp = Dispatcher()
     dp.include_router(handlers_admin.router)
+    dp.include_router(handlers_admin_self_pass.router)
     dp.include_router(handlers_admin_appeal.router)
     dp.include_router(handlers_admin_search.router)
     dp.include_router(handlers_admin_statistic.router)

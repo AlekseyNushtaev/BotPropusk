@@ -39,6 +39,7 @@ def get_passes_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Постоянные пропуска", callback_data="permanent_passes_menu")],
         [InlineKeyboardButton(text="Временные пропуска", callback_data="temporary_passes_menu")],
+        [InlineKeyboardButton(text="Выписать временный пропуск", callback_data="issue_self_pass")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_main")]
     ])
 
@@ -111,8 +112,10 @@ async def show_temporary_passes(message: Union[Message, CallbackQuery], state: F
         buttons = []
         for req, res_fio, con_fio in requests:
             owner_name = res_fio or con_fio or "Неизвестный"
+            if owner_name == 'Неизвестный':
+                owner_name = req.security_comment
             fio_short = ' '.join(owner_name.split()[:2])
-            btn_text = f"{req.id}_{fio_short}_{req.car_number}"
+            btn_text = f"{fio_short}_{req.car_number}"
             buttons.append(
                 [InlineKeyboardButton(text=btn_text, callback_data=f"view_temp_pass_{req.id}")]
             )
