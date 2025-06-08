@@ -111,7 +111,7 @@ async def start_search_by_number(callback: CallbackQuery, state: FSMContext):
 async def search_by_number(message: Message, state: FSMContext):
     try:
         car_number = message.text.upper().strip()
-        today = datetime.now().date()
+        today = datetime.datetime.now().date()
         found = False
         await state.clear()
 
@@ -248,7 +248,7 @@ async def start_search_by_digits(callback: CallbackQuery, state: FSMContext):
 async def search_by_digits(message: Message, state: FSMContext):
     try:
         digits = message.text.strip()
-        today = datetime.now().date()
+        today = datetime.datetime.now().date()
         await state.clear()
         found = False
 
@@ -379,7 +379,7 @@ async def search_by_digits(message: Message, state: FSMContext):
 @router.callback_query(F.data == "all_temp_passes")
 async def show_all_temp_passes(callback: CallbackQuery):
     try:
-        today = datetime.now().date()
+        today = datetime.datetime.now().date()
         found = False
 
         async with AsyncSessionLocal() as session:
