@@ -115,7 +115,7 @@ async def search_by_number(message: Message, state: FSMContext):
         await state.clear()
 
         async with AsyncSessionLocal() as session:
-            # 1. Поиск постоянных пропусков
+            # 1. Поиск постоянных пропусков резидентов
             perm_stmt = select(PermanentPass, Resident.fio, Resident.plot_number) \
                 .join(Resident, PermanentPass.resident_id == Resident.id) \
                 .where(
@@ -124,6 +124,14 @@ async def search_by_number(message: Message, state: FSMContext):
             )
             perm_result = await session.execute(perm_stmt)
             perm_passes = perm_result.all()
+
+            admin_stmt = select(PermanentPass).where(
+                PermanentPass.car_number == car_number,
+                PermanentPass.status == 'approved',
+                PermanentPass.resident_id == None
+            )
+            admin_result = await session.execute(admin_stmt)
+            admin_passes = admin_result.scalars()
 
             temp_res_stmt = select(
                 TemporaryPass,
@@ -182,6 +190,23 @@ async def search_by_number(message: Message, state: FSMContext):
                 )
                 await asyncio.sleep(0.05)
                 await message.answer(text, parse_mode="HTML")
+
+
+            for pass_data in admin_passes:
+                found = True
+                perm_pass = pass_data
+                text = (
+                    "🔰 <b>Постоянный пропуск представителя УК</b>\n\n"
+                    f"🚗 Марка: {perm_pass.car_brand}\n"
+                    f"🚙 Модель: {perm_pass.car_model}\n"
+                    f"🔢 Номер: {perm_pass.car_number}\n"
+                    f"👤 Владелец: {perm_pass.car_owner}\n"
+                    f"📝 Комментарий для СБ: {perm_pass.security_comment or 'нет'}"
+                )
+                await asyncio.sleep(0.05)
+                await message.answer(text, parse_mode="HTML")
+
+
 
             # Обработка временных пропусков резидентов
             for pass_data in temp_res_passes:
@@ -290,6 +315,15 @@ async def search_by_digits(message: Message, state: FSMContext):
             perm_result = await session.execute(perm_stmt)
             perm_passes = perm_result.all()
 
+            admin_stmt = select(PermanentPass).where(
+                PermanentPass.car_number.ilike(f"%{digits}%"),
+                PermanentPass.status == 'approved',
+                PermanentPass.resident_id == None
+            )
+            admin_result = await session.execute(admin_stmt)
+            admin_passes = admin_result.scalars()
+
+
             # 2. Поиск временных пропусков резидентов
             temp_res_stmt = select(
                 TemporaryPass,
@@ -352,6 +386,22 @@ async def search_by_digits(message: Message, state: FSMContext):
                 )
                 await message.answer(text, parse_mode="HTML")
                 await asyncio.sleep(0.05)
+
+
+            for pass_data in admin_passes:
+                found = True
+                perm_pass = pass_data
+                text = (
+                    "🔰 <b>Постоянный пропуск представителя УК</b>\n\n"
+                    f"🚗 Марка: {perm_pass.car_brand}\n"
+                    f"🚙 Модель: {perm_pass.car_model}\n"
+                    f"🔢 Номер: {perm_pass.car_number}\n"
+                    f"👤 Владелец: {perm_pass.car_owner}\n"
+                    f"📝 Комментарий для СБ: {perm_pass.security_comment or 'нет'}"
+                )
+                await asyncio.sleep(0.05)
+                await message.answer(text, parse_mode="HTML")
+
 
             # Обработка временных пропусков резидентов
             for pass_data in temp_res_passes:
