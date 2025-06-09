@@ -66,7 +66,7 @@ async def search_by_number(message: Message, state: FSMContext):
         await state.clear()
 
         async with AsyncSessionLocal() as session:
-            # 1. Поиск постоянных пропусков
+            # 1. Поиск постоянных пропусков резидентов
             perm_stmt = select(PermanentPass, Resident.fio, Resident.plot_number) \
                 .join(Resident, PermanentPass.resident_id == Resident.id) \
                 .where(
@@ -75,6 +75,14 @@ async def search_by_number(message: Message, state: FSMContext):
             )
             perm_result = await session.execute(perm_stmt)
             perm_passes = perm_result.all()
+
+            admin_stmt = select(PermanentPass).where(
+                PermanentPass.car_number == car_number,
+                PermanentPass.status == 'approved',
+                PermanentPass.resident_id == None
+            )
+            admin_result = await session.execute(admin_stmt)
+            admin_passes = admin_result.scalars()
 
             temp_res_stmt = select(
                 TemporaryPass,
@@ -106,6 +114,17 @@ async def search_by_number(message: Message, state: FSMContext):
             temp_contr_result = await session.execute(temp_contr_stmt)
             temp_contr_passes = temp_contr_result.all()
 
+            temp_staff_stmt = select(TemporaryPass).where(
+                TemporaryPass.owner_type == 'staff',
+                TemporaryPass.car_number == car_number,
+                TemporaryPass.status == 'approved',
+                TemporaryPass.visit_date <= today,
+                today <= func.date(TemporaryPass.visit_date, f'+{PASS_TIME} days')
+            )
+
+            temp_staff_result = await session.execute(temp_staff_stmt)
+            temp_staff_passes = temp_staff_result.scalars().all()
+
             # Обработка постоянных пропусков
             for pass_data in perm_passes:
                 found = True
@@ -122,6 +141,23 @@ async def search_by_number(message: Message, state: FSMContext):
                 )
                 await asyncio.sleep(0.05)
                 await message.answer(text, parse_mode="HTML")
+
+
+            for pass_data in admin_passes:
+                found = True
+                perm_pass = pass_data
+                text = (
+                    "🔰 <b>Постоянный пропуск представителя УК</b>\n\n"
+                    f"🚗 Марка: {perm_pass.car_brand}\n"
+                    f"🚙 Модель: {perm_pass.car_model}\n"
+                    f"🔢 Номер: {perm_pass.car_number}\n"
+                    f"👤 Владелец: {perm_pass.car_owner}\n"
+                    f"📝 Комментарий для СБ: {perm_pass.security_comment or 'нет'}"
+                )
+                await asyncio.sleep(0.05)
+                await message.answer(text, parse_mode="HTML")
+
+
 
             # Обработка временных пропусков резидентов
             for pass_data in temp_res_passes:
@@ -153,6 +189,23 @@ async def search_by_number(message: Message, state: FSMContext):
                     f"👷 ФИО подрядчика: {fio}\n"
                     f"🏢 Компания: {company}\n"
                     f"💼 Должность: {position}\n"
+                    f"🚗 Тип ТС: {'Легковой' if temp_pass.vehicle_type == 'car' else 'Грузовой'}\n"
+                    f"🔢 Номер: {temp_pass.car_number}\n"
+                    f"🚙 Марка: {temp_pass.car_brand}\n"
+                    f"📦 Тип груза: {temp_pass.cargo_type}\n"
+                    f"🎯 Цель визита: {temp_pass.purpose}\n"
+                    f"📅 Дата визита: {temp_pass.visit_date.strftime('%d.%m.%Y')} - "
+                    f"{(temp_pass.visit_date + timedelta(days=PASS_TIME)).strftime('%d.%m.%Y')}\n"
+                    f"💬 Комментарий владельца: {temp_pass.owner_comment or 'нет'}\n"
+                    f"📝 Комментарий для СБ: {temp_pass.security_comment or 'нет'}"
+                )
+                await message.answer(text, parse_mode="HTML")
+                await asyncio.sleep(0.05)
+
+            for temp_pass in temp_staff_passes:
+                found = True
+                text = (
+                    "⏳ <b>Временный пропуск от представителя УК</b>\n\n"
                     f"🚗 Тип ТС: {'Легковой' if temp_pass.vehicle_type == 'car' else 'Грузовой'}\n"
                     f"🔢 Номер: {temp_pass.car_number}\n"
                     f"🚙 Марка: {temp_pass.car_brand}\n"
@@ -213,6 +266,15 @@ async def search_by_digits(message: Message, state: FSMContext):
             perm_result = await session.execute(perm_stmt)
             perm_passes = perm_result.all()
 
+            admin_stmt = select(PermanentPass).where(
+                PermanentPass.car_number.ilike(f"%{digits}%"),
+                PermanentPass.status == 'approved',
+                PermanentPass.resident_id == None
+            )
+            admin_result = await session.execute(admin_stmt)
+            admin_passes = admin_result.scalars()
+
+
             # 2. Поиск временных пропусков резидентов
             temp_res_stmt = select(
                 TemporaryPass,
@@ -248,6 +310,17 @@ async def search_by_digits(message: Message, state: FSMContext):
             temp_contr_result = await session.execute(temp_contr_stmt)
             temp_contr_passes = temp_contr_result.all()
 
+            temp_staff_stmt = select(TemporaryPass).where(
+                TemporaryPass.owner_type == 'staff',
+                TemporaryPass.status == 'approved',
+                TemporaryPass.visit_date <= today,
+                func.date(TemporaryPass.visit_date, f'+{PASS_TIME} days') >= today,
+                TemporaryPass.car_number.ilike(f"%{digits}%")
+            )
+
+            temp_staff_result = await session.execute(temp_staff_stmt)
+            temp_staff_passes = temp_staff_result.scalars().all()
+
             # Обработка постоянных пропусков
             for pass_data in perm_passes:
                 found = True
@@ -264,6 +337,22 @@ async def search_by_digits(message: Message, state: FSMContext):
                 )
                 await message.answer(text, parse_mode="HTML")
                 await asyncio.sleep(0.05)
+
+
+            for pass_data in admin_passes:
+                found = True
+                perm_pass = pass_data
+                text = (
+                    "🔰 <b>Постоянный пропуск представителя УК</b>\n\n"
+                    f"🚗 Марка: {perm_pass.car_brand}\n"
+                    f"🚙 Модель: {perm_pass.car_model}\n"
+                    f"🔢 Номер: {perm_pass.car_number}\n"
+                    f"👤 Владелец: {perm_pass.car_owner}\n"
+                    f"📝 Комментарий для СБ: {perm_pass.security_comment or 'нет'}"
+                )
+                await asyncio.sleep(0.05)
+                await message.answer(text, parse_mode="HTML")
+
 
             # Обработка временных пропусков резидентов
             for pass_data in temp_res_passes:
@@ -295,6 +384,23 @@ async def search_by_digits(message: Message, state: FSMContext):
                     f"👷 ФИО подрядчика: {fio}\n"
                     f"🏢 Компания: {company}\n"
                     f"💼 Должность: {position}\n"
+                    f"🚗 Тип ТС: {'Легковой' if temp_pass.vehicle_type == 'car' else 'Грузовой'}\n"
+                    f"🔢 Номер: {temp_pass.car_number}\n"
+                    f"🚙 Марка: {temp_pass.car_brand}\n"
+                    f"📦 Тип груза: {temp_pass.cargo_type}\n"
+                    f"🎯 Цель визита: {temp_pass.purpose}\n"
+                    f"📅 Дата визита: {temp_pass.visit_date.strftime('%d.%m.%Y')} - "
+                    f"{(temp_pass.visit_date + timedelta(days=PASS_TIME)).strftime('%d.%m.%Y')}\n"
+                    f"💬 Комментарий владельца: {temp_pass.owner_comment or 'нет'}\n"
+                    f"📝 Комментарий для СБ: {temp_pass.security_comment or 'нет'}"
+                )
+                await message.answer(text, parse_mode="HTML")
+                await asyncio.sleep(0.05)
+
+            for temp_pass in temp_staff_passes:
+                found = True
+                text = (
+                    "⏳ <b>Временный пропуск от представителя УК</b>\n\n"
                     f"🚗 Тип ТС: {'Легковой' if temp_pass.vehicle_type == 'car' else 'Грузовой'}\n"
                     f"🔢 Номер: {temp_pass.car_number}\n"
                     f"🚙 Марка: {temp_pass.car_brand}\n"
@@ -364,6 +470,16 @@ async def show_all_temp_passes(callback: CallbackQuery):
             contr_result = await session.execute(contr_stmt)
             contr_passes = contr_result.all()
 
+            staff_stmt = select(TemporaryPass).where(
+                TemporaryPass.owner_type == 'staff',
+                TemporaryPass.status == 'approved',
+                TemporaryPass.visit_date <= today,
+                func.date(TemporaryPass.visit_date, f'+{PASS_TIME} days') >= today
+            )
+
+            staff_result = await session.execute(staff_stmt)
+            staff_passes = staff_result.scalars().all()
+
             # Обработка пропусков резидентов
             for pass_data in res_passes:
                 found = True
@@ -394,6 +510,23 @@ async def show_all_temp_passes(callback: CallbackQuery):
                     f"👷 ФИО подрядчика: {fio}\n"
                     f"🏢 Компания: {company}\n"
                     f"💼 Должность: {position}\n"
+                    f"🚗 Тип ТС: {'Легковой' if temp_pass.vehicle_type == 'car' else 'Грузовой'}\n"
+                    f"🔢 Номер: {temp_pass.car_number}\n"
+                    f"🚙 Марка: {temp_pass.car_brand}\n"
+                    f"📦 Тип груза: {temp_pass.cargo_type}\n"
+                    f"🎯 Цель визита: {temp_pass.purpose}\n"
+                    f"📅 Дата визита: {temp_pass.visit_date.strftime('%d.%m.%Y')} - "
+                    f"{(temp_pass.visit_date + timedelta(days=PASS_TIME)).strftime('%d.%m.%Y')}\n"
+                    f"💬 Комментарий владельца: {temp_pass.owner_comment or 'нет'}\n"
+                    f"📝 Комментарий для СБ: {temp_pass.security_comment or 'нет'}"
+                )
+                await callback.message.answer(text, parse_mode="HTML")
+                await asyncio.sleep(0.05)
+
+            for temp_pass in staff_passes:
+                found = True
+                text = (
+                    "⏳ <b>Временный пропуск от представителя УК</b>\n\n"
                     f"🚗 Тип ТС: {'Легковой' if temp_pass.vehicle_type == 'car' else 'Грузовой'}\n"
                     f"🔢 Номер: {temp_pass.car_number}\n"
                     f"🚙 Марка: {temp_pass.car_brand}\n"

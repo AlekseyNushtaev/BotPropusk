@@ -16,7 +16,7 @@ from bot import bot
 from config import PAGE_SIZE, PASS_TIME, MAX_CAR_PASSES, MAX_TRUCK_PASSES, RAZRAB
 from date_parser import parse_date
 from db.models import Resident, AsyncSessionLocal, ResidentContractorRequest, PermanentPass, TemporaryPass
-from db.util import get_active_admins_and_managers_tg_ids
+from db.util import get_active_admins_and_managers_tg_ids, get_active_admins_managers_sb_tg_ids
 from filters import IsResident
 from handlers_admin import admin_reply_keyboard
 
@@ -791,11 +791,11 @@ async def process_comment_and_save(message: Message, state: FSMContext):
         ])
         if status == "approved":
             await message.answer(f"✅ Ваш временный пропуск одобрен на машину с номером {data.get('car_number').upper()}", reply_markup=keyboard)
-            tg_ids = await get_active_admins_and_managers_tg_ids()
+            tg_ids = await get_active_admins_managers_sb_tg_ids()
             for tg_id in tg_ids:
                 await bot.send_message(
                     tg_id,
-                    text=f'Пропуск от резидента {resident.fio} на машину с номером {data.get("car_number").upper()} одобрен автоматически.\n(Пропуска > Временные пропуска > Подтвержденные)',
+                    text=f'Пропуск от резидента {resident.fio} на машину с номером {data.get("car_number").upper()} одобрен автоматически.',
                     reply_markup=admin_reply_keyboard
                 )
                 await asyncio.sleep(0.05)

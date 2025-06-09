@@ -11,9 +11,9 @@ from sqlalchemy import select
 
 from bot import bot
 from config import ADMIN_IDS
-from db.models import AsyncSessionLocal, TemporaryPass, Manager
+from db.models import AsyncSessionLocal, TemporaryPass, Manager, PermanentPass
 from date_parser import parse_date
-from db.util import get_active_admins_and_managers_tg_ids
+from db.util import get_active_admins_and_managers_tg_ids, get_active_admins_managers_sb_tg_ids
 from handlers_admin import admin_reply_keyboard
 from handlers_admin_temporary_pass import get_passes_menu
 
@@ -32,10 +32,17 @@ class TemporarySelfPassStates(StatesGroup):
     INPUT_COMMENT = State()
 
 
+class PermanentSelfPassStates(StatesGroup):
+    INPUT_CAR_BRAND = State()
+    INPUT_CAR_MODEL = State()
+    INPUT_CAR_NUMBER = State()
+    INPUT_CAR_OWNER = State()
+
+
 async def get_owner_info(user_id: int) -> str:
     """Определяет информацию о владельце пропуска (админ/менеджер)"""
     if user_id in ADMIN_IDS:
-        return "Администратор"
+        return f"Администратор"
 
     async with AsyncSessionLocal() as session:
         manager = await session.scalar(
@@ -188,7 +195,7 @@ async def process_self_comment_and_save(message: Message, state: FSMContext):
                 purpose=data["purpose"],
                 visit_date=data["visit_date"],
                 owner_comment=comment,
-                security_comment=owner_info,
+                security_comment=f"Выписал {owner_info}",
                 status="approved",
                 created_at=datetime.datetime.now(),
                 time_registration=datetime.datetime.now()
@@ -200,7 +207,7 @@ async def process_self_comment_and_save(message: Message, state: FSMContext):
             f"✅ Временный пропуск на машину {data['car_number'].upper()} оформлен!",
             reply_markup=get_passes_menu()
         )
-        tg_ids = await get_active_admins_and_managers_tg_ids()
+        tg_ids = await get_active_admins_managers_sb_tg_ids()
         for tg_id in tg_ids:
             await bot.send_message(
                 tg_id,
@@ -208,6 +215,71 @@ async def process_self_comment_and_save(message: Message, state: FSMContext):
                 reply_markup=admin_reply_keyboard
             )
             await asyncio.sleep(0.05)
+        await state.clear()
+    except Exception as e:
+        await message.answer(f"❌ Ошибка при оформлении пропуска: {str(e)}")
+        await state.clear()
+
+
+#Постоянные пропуска
+@router.callback_query(F.data == "issue_permanent_self_pass")
+async def start_permanent_self_pass(callback: CallbackQuery, state: FSMContext):
+    """Начало оформления постоянного пропуска для себя"""
+    await callback.message.answer("Введите марку машины:")
+    await state.set_state(PermanentSelfPassStates.INPUT_CAR_BRAND)
+
+
+@router.message(F.text, PermanentSelfPassStates.INPUT_CAR_BRAND)
+async def process_self_car_brand(message: Message, state: FSMContext):
+    await state.update_data(car_brand=message.text)
+    await message.answer("Введите модель машины:")
+    await state.set_state(PermanentSelfPassStates.INPUT_CAR_MODEL)
+
+
+@router.message(F.text, PermanentSelfPassStates.INPUT_CAR_MODEL)
+async def process_self_car_model(message: Message, state: FSMContext):
+    await state.update_data(car_model=message.text)
+    await message.answer("Введите номер машины:")
+    await state.set_state(PermanentSelfPassStates.INPUT_CAR_NUMBER)
+
+
+@router.message(F.text, PermanentSelfPassStates.INPUT_CAR_NUMBER)
+async def process_self_car_number(message: Message, state: FSMContext):
+    await state.update_data(car_number=message.text)
+    await message.answer("Укажите владельца автомобиля:")
+    await state.set_state(PermanentSelfPassStates.INPUT_CAR_OWNER)
+
+
+@router.message(F.text, PermanentSelfPassStates.INPUT_CAR_OWNER)
+async def process_self_car_owner(message: Message, state: FSMContext):
+    try:
+        data = await state.get_data()
+        owner_info = await get_owner_info(message.from_user.id)
+
+        async with AsyncSessionLocal() as session:
+            new_pass = PermanentPass(
+                car_brand=data['car_brand'],
+                car_model=data['car_model'],
+                car_number=data['car_number'].upper(),
+                car_owner=message.text,
+                status='approved',
+                security_comment=f"Выписал {owner_info}",
+                created_at=datetime.datetime.now(),
+                time_registration=datetime.datetime.now()
+            )
+            session.add(new_pass)
+            await session.commit()
+
+        # Уведомление админов и менеджеров
+        tg_ids = await get_active_admins_managers_sb_tg_ids()
+        for tg_id in tg_ids:
+            await bot.send_message(
+                tg_id,
+                text=f'Постоянный пропуск от {owner_info} на машину {data["car_number"].upper()} одобрен автоматически.',
+                reply_markup=admin_reply_keyboard
+            )
+            await asyncio.sleep(0.05)
+
         await state.clear()
     except Exception as e:
         await message.answer(f"❌ Ошибка при оформлении пропуска: {str(e)}")

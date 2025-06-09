@@ -14,7 +14,9 @@ from bot import bot
 from date_parser import parse_date
 from db.models import AsyncSessionLocal, Resident, Contractor, TemporaryPass
 from config import ADMIN_IDS, PAGE_SIZE, RAZRAB
+from db.util import get_active_admins_managers_sb_tg_ids
 from filters import IsAdminOrManager
+from handlers_admin import admin_reply_keyboard
 from handlers_admin_permanent_pass import passes_menu
 
 router = Router()
@@ -111,9 +113,7 @@ async def show_temporary_passes(message: Union[Message, CallbackQuery], state: F
         # Формируем кнопки
         buttons = []
         for req, res_fio, con_fio in requests:
-            owner_name = res_fio or con_fio or "Неизвестный"
-            if owner_name == 'Неизвестный':
-                owner_name = req.security_comment
+            owner_name = res_fio or con_fio or "Представитель УК Eli Estate"
             fio_short = ' '.join(owner_name.split()[:2])
             btn_text = f"{fio_short}_{req.car_number}"
             buttons.append(
@@ -209,7 +209,8 @@ async def get_pass_owner_info(session, pass_request):
     elif pass_request.owner_type == "contractor":
         contractor = await session.get(Contractor, pass_request.contractor_id)
         return f"Подрядчик: {contractor.fio}" if contractor else "Подрядчик не найден"
-    return "Владелец не определен"
+    else:
+        return "Представитель УК"
 
 
 @router.callback_query(F.data.startswith("view_temp_pass_"))
@@ -293,14 +294,17 @@ async def approve_temp_pass(callback: CallbackQuery, state: FSMContext):
             await session.commit()
 
             # Отправляем сообщение владельцу
+            text_to_all = ''
             try:
                 owner_id = None
                 if pass_request.owner_type == "resident" and pass_request.resident_id:
                     resident = await session.get(Resident, pass_request.resident_id)
                     owner_id = resident.tg_id
+                    text_to_all = f'от резидента {resident.fio}'
                 elif pass_request.owner_type == "contractor" and pass_request.contractor_id:
                     contractor = await session.get(Contractor, pass_request.contractor_id)
                     owner_id = contractor.tg_id
+                    text_to_all = f'от подрядчика {contractor.company}, {contractor.position}, {contractor.fio}'
 
                 if owner_id:
                     await bot.send_message(
@@ -311,7 +315,15 @@ async def approve_temp_pass(callback: CallbackQuery, state: FSMContext):
             except Exception as e:
                 logging.error(f"Не удалось отправить сообщение владельцу: {e}")
 
-            await callback.answer("Пропуск одобрен!")
+            tg_ids = await get_active_admins_managers_sb_tg_ids()
+
+            for tg_id in tg_ids:
+                await bot.send_message(
+                    tg_id,
+                    text=f'Временный пропуск {text_to_all} на машину с номером {pass_request.car_number} одобрен.',
+                    reply_markup=admin_reply_keyboard
+                )
+                await asyncio.sleep(0.05)
             await callback.message.answer(
                 "Управление временными пропусками:",
                 reply_markup=get_temporary_passes_management()

@@ -12,7 +12,9 @@ from sqlalchemy import select, func
 from bot import bot
 from db.models import AsyncSessionLocal, Resident, PermanentPass
 from config import PAGE_SIZE, RAZRAB
+from db.util import get_active_admins_managers_sb_tg_ids
 from filters import IsAdminOrManager
+from handlers_admin import admin_reply_keyboard
 
 router = Router()
 router.message.filter(IsAdminOrManager())
@@ -34,6 +36,7 @@ def get_passes_menu():
         [InlineKeyboardButton(text="Постоянные пропуска", callback_data="permanent_passes_menu")],
         [InlineKeyboardButton(text="Временные пропуска", callback_data="temporary_passes_menu")],
         [InlineKeyboardButton(text="Выписать временный пропуск", callback_data="issue_self_pass")],
+        [InlineKeyboardButton(text="Выписать постоянный пропуск", callback_data="issue_permanent_self_pass")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_main")]
     ])
 
@@ -251,9 +254,15 @@ async def approve_pass(callback: CallbackQuery, state: FSMContext):
                 )
             except Exception as e:
                 logging.error(f"Не удалось отправить сообщение резиденту: {e}")
-
+            tg_ids = await get_active_admins_managers_sb_tg_ids()
+            for tg_id in tg_ids:
+                await bot.send_message(
+                    tg_id,
+                    text=f'Постоянный пропуск от резидента {resident.fio} на машину с номером {pass_request.car_number} одобрен.',
+                    reply_markup=admin_reply_keyboard
+                )
+                await asyncio.sleep(0.05)
             # Сообщение админу
-            await callback.answer("Пропуск одобрен!")
             await callback.message.answer(
                 "Управление постоянными пропусками:",
                 reply_markup=get_permanent_passes_management()
@@ -642,14 +651,13 @@ async def show_approved_passes(message: Union[Message, CallbackQuery], state: FS
 
             # Получаем заявки для текущей страницы
             result = await session.execute(
-                select(PermanentPass, Resident.fio)
-                .join(Resident, Resident.id == PermanentPass.resident_id)
+                select(PermanentPass)
                 .where(PermanentPass.status == 'approved')
                 .order_by(PermanentPass.created_at.desc())
                 .offset(current_page * PAGE_SIZE)
                 .limit(PAGE_SIZE)
             )
-            requests = result.all()
+            requests = result.scalars()
 
         if not requests:
             text = "Нет подтвержденных пропусков"
@@ -661,10 +669,20 @@ async def show_approved_passes(message: Union[Message, CallbackQuery], state: FS
 
         # Формируем кнопки
         buttons = []
-        for req, fio in requests:
-            # Берем первые два слова из ФИО
-            fio_short = ' '.join(fio.split()[:2])
-            text = f"{req.id}_{fio_short}"
+        for req in requests:
+            if req.resident_id:
+                async with AsyncSessionLocal() as session:
+                    result = await session.execute(select(Resident).where(Resident.id == req.resident_id))
+                    resident = result.scalar()
+                    fio_short = ' '.join(resident.fio.split()[:2])
+                    text = f"{fio_short}_{req.car_number}"
+            else:
+                fio = req.security_comment.replace('Выписал', '')
+                if 'Администратор' in fio:
+                    fio_short = 'Администратор'
+                else:
+                    fio_short = ' '.join(fio.split()[:2])
+                text = f"{fio_short}_{req.car_number}"
             buttons.append(
                 [InlineKeyboardButton(text=text, callback_data=f"view_ap_pass_{req.id}")]
             )
@@ -724,34 +742,46 @@ async def view_pass_details(callback: CallbackQuery, state: FSMContext):
         async with AsyncSessionLocal() as session:
             # Получаем пропуск и связанного резидента
             result = await session.execute(
-                select(PermanentPass, Resident.fio)
-                .join(Resident, Resident.id == PermanentPass.resident_id)
+                select(PermanentPass)
                 .where(PermanentPass.id == pass_id)
             )
-            pass_request, fio = result.first()
+            pass_request = result.scalar()
 
-            if not pass_request:
-                await callback.answer("Пропуск не найден")
-                return
+        if not pass_request:
+            await callback.answer("Пропуск не найден")
+            return
 
-            # Формируем текст сообщения
-            text = (
-                f"ФИО: {fio}\n"
-                f"Марка: {pass_request.car_brand}\n"
-                f"Модель: {pass_request.car_model}\n"
-                f"Номер: {pass_request.car_number}\n"
-                f"Владелец: {pass_request.car_owner}\n"
-                f"Комментарий для СБ: {pass_request.security_comment or 'нет'}\n"
-                f"Время создания: {pass_request.created_at.strftime('%d.%m.%Y %H:%M')}\n"
-                f"Время подтверждения: {pass_request.time_registration.strftime('%d.%m.%Y %H:%M')}"
-            )
+        if pass_request.resident_id:
+            async with AsyncSessionLocal() as session:
+                # Получаем пропуск и связанного резидента
+                result = await session.execute(
+                    select(Resident)
+                    .where(Resident.id == pass_request.resident_id)
+                )
+                resident = result.scalar()
+                fio = resident.fio
+        else:
+            fio = pass_request.security_comment.replace('Выписал ', '')
 
-            # Формируем клавиатуру действий (добавляем кнопку Редактировать)
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_approved_passes")]
-            ])
 
-            await callback.message.edit_text(text, reply_markup=keyboard)
+        # Формируем текст сообщения
+        text = (
+            f"ФИО: {fio}\n"
+            f"Марка: {pass_request.car_brand}\n"
+            f"Модель: {pass_request.car_model}\n"
+            f"Номер: {pass_request.car_number}\n"
+            f"Владелец: {pass_request.car_owner}\n"
+            f"Комментарий для СБ: {pass_request.security_comment or 'нет'}\n"
+            f"Время создания: {pass_request.created_at.strftime('%d.%m.%Y %H:%M')}\n"
+            f"Время подтверждения: {pass_request.time_registration.strftime('%d.%m.%Y %H:%M')}"
+        )
+
+        # Формируем клавиатуру действий (добавляем кнопку Редактировать)
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_approved_passes")]
+        ])
+
+        await callback.message.edit_text(text, reply_markup=keyboard)
     except Exception as e:
         await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
         await asyncio.sleep(0.05)

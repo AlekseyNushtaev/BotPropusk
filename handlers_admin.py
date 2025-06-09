@@ -298,7 +298,6 @@ async def process_phone(message: Message, state: FSMContext):
                 await message.answer(f"Ошибка: {str(e)}")
                 await session.rollback()
 
-        await state.clear()
     except Exception as e:
         await bot.send_message(RAZRAB, f'{message.from_user.id} - {str(e)}')
         await asyncio.sleep(0.05)

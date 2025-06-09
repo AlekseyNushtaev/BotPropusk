@@ -163,7 +163,7 @@ class ContractorContractorRequest(Base):
 class PermanentPass(Base):
     __tablename__ = 'permanent_pass'
     id: Mapped[int] = mapped_column(primary_key=True)
-    resident_id: Mapped[int] = mapped_column(ForeignKey('resident.id'))
+    resident_id: Mapped[int] = mapped_column(ForeignKey('resident.id'), nullable=True)
     car_brand: Mapped[str] = mapped_column(nullable=True)      # Марка машины
     car_model: Mapped[str] = mapped_column(nullable=True)     # Модель машины
     car_number: Mapped[str] = mapped_column(nullable=True)    # Номер машины

@@ -4,7 +4,7 @@ import re
 from sqlalchemy import select, insert, update
 
 from config import ADMIN_IDS
-from db.models import User, AsyncSessionLocal, Manager
+from db.models import User, AsyncSessionLocal, Manager, Security
 
 
 async def add_user_to_db(user_id, username, first_name, last_name, time_start):
@@ -81,4 +81,33 @@ async def get_active_admins_and_managers_tg_ids() -> list[int]:
 
         # Объединение и удаление дубликатов
         all_ids = set(ADMIN_IDS) | set(managers_ids)
+        return list(all_ids)
+
+
+async def get_active_admins_managers_sb_tg_ids() -> list[int]:
+    """
+    Получает список Telegram ID всех активных администраторов и менеджеров.
+
+    Returns:
+        list[int]: Список уникальных Telegram ID
+    """
+    async with AsyncSessionLocal() as session:
+
+        # Запрос для менеджеров (статус True и заполненный tg_id)
+        managers_query = select(Manager.tg_id).where(
+            Manager.status == True,
+            Manager.tg_id.isnot(None)
+        )
+        managers_result = await session.execute(managers_query)
+        managers_ids = managers_result.scalars().all()
+
+        security_query = select(Security.tg_id).where(
+            Security.status == True,
+            Security.tg_id.isnot(None)
+        )
+        security_result = await session.execute(security_query)
+        security_ids = security_result.scalars().all()
+
+        # Объединение и удаление дубликатов
+        all_ids = set(ADMIN_IDS) | set(managers_ids) | set(security_ids)
         return list(all_ids)
