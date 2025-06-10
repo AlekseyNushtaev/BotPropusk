@@ -133,7 +133,7 @@ async def show_contractor_requests(callback: CallbackQuery):
             buttons = [
                 [InlineKeyboardButton(
                     text=f"{req.company}_{req.position}",
-                    callback_data=f"view_contractor_request_{req.id}"
+                    callback_data=f"view_cont_request_{req.id}"
                 )] for req in requests
             ]
 
@@ -187,7 +187,7 @@ async def view_request_details(callback: CallbackQuery, state: FSMContext):
 
 
 # Просмотр заявки подрядчика
-@router.callback_query(F.data.startswith("view_contractor_request_"))
+@router.callback_query(F.data.startswith("view_cont_request_"))
 async def view_contractor_request(callback: CallbackQuery, state: FSMContext):
     try:
         request_id = int(callback.data.split("_")[-1])
