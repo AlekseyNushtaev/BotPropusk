@@ -13,7 +13,7 @@ from config import PAGE_SIZE, RAZRAB
 from db.models import Resident, AsyncSessionLocal, Appeal
 from db.util import get_active_admins_and_managers_tg_ids
 from filters import IsResident
-from handlers_admin import admin_reply_keyboard
+from handlers.handlers_admin_user_management import admin_reply_keyboard
 
 router = Router()
 router.message.filter(IsResident())  # Применяем фильтр резидентства ко всем хендлерам сообщений

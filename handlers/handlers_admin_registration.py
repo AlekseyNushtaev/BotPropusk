@@ -2,23 +2,21 @@ import asyncio
 import datetime
 
 from aiogram import Router, F
-from aiogram.filters import CommandStart
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, \
-    KeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from sqlalchemy import select, delete
+from sqlalchemy import select
 
 from bot import bot
 from config import RAZRAB
-from db.models import Manager, Security, Resident, Contractor, RegistrationRequest, \
-    ContractorRegistrationRequest, AsyncSessionLocal, ResidentContractorRequest, TemporaryPass, PermanentPass, Appeal, \
-    ContractorContractorRequest
-from filters import IsManager
+from db.models import Resident, Contractor, RegistrationRequest, \
+    ContractorRegistrationRequest, AsyncSessionLocal, ResidentContractorRequest, ContractorContractorRequest
+from filters import IsAdminOrManager
+from handlers.handlers_admin_user_management import admin_reply_keyboard
 
 router = Router()
-router.message.filter(IsManager())  # Применяем фильтр менеджера ко всем хендлерам сообщений
-router.callback_query.filter(IsManager())  # Применяем фильтр менеджера ко всем хендлерам колбеков
+router.message.filter(IsAdminOrManager())
+router.callback_query.filter(IsAdminOrManager())
 
 
 class AddUserStates(StatesGroup):
@@ -43,37 +41,12 @@ class RegistrationRequestStates(StatesGroup):
     AWAIT_REJECT_COMMENT = State()
 
 
-@router.callback_query(F.data == "back_to_main")
-async def back_to_main_menu(callback: CallbackQuery):
-    await callback.message.edit_text(
-        text="Добро пожаловать в меню менеджера",
-        reply_markup=get_admin_menu()
-    )
-
-
-admin_reply_keyboard = ReplyKeyboardMarkup(
-    keyboard=[[KeyboardButton(text="Главное меню")]],
-    resize_keyboard=True,
-    is_persistent=True
-)
-
-
-def is_valid_phone(phone: str) -> bool:
-    return len(phone) == 11 and phone.isdigit() and phone[0] == '8'
-
-
 def edit_keyboard_contractor():
     return InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text="ФИО", callback_data="edit_contractorfio"),
-                InlineKeyboardButton(text="Компания", callback_data="edit_contractorcompany"),  # Добавлено
-            ],
-            [
-                InlineKeyboardButton(text="Должность", callback_data="edit_contractorposition"),  # Добавлено
-            ],
-            [
-                InlineKeyboardButton(text="✅ Готово", callback_data="edit_finishcontractor")
-            ]
+            [InlineKeyboardButton(text="ФИО", callback_data="edit_contractorfio"),
+             InlineKeyboardButton(text="Компания", callback_data="edit_contractorcompany")],
+            [InlineKeyboardButton(text="Должность", callback_data="edit_contractorposition")],
+            [InlineKeyboardButton(text="✅ Готово", callback_data="edit_finishcontractor")]
         ])
 
 
@@ -82,195 +55,17 @@ def get_registration_menu():
         [InlineKeyboardButton(text="Регистрация резидентов", callback_data="registration_requests")],
         [InlineKeyboardButton(text="Регистрация подрядчиков", callback_data="contractor_requests")],
         [InlineKeyboardButton(text="Заявки подрядчиков от резидентов", callback_data="resident_contractor_requests")],
-        [InlineKeyboardButton(text="Заявки субподрядчиков от подрядчиков",
-                              callback_data="contractor_contractor_requests")],
+        [InlineKeyboardButton(text="Заявки субподрядчиков от подрядчиков", callback_data="contractor_contractor_requests")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_main")]
-    ])
-
-
-# Обновленное главное меню админа
-def get_admin_menu():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👥Управление пользователями", callback_data="user_management")],
-        [InlineKeyboardButton(text="📝 Регистрация", callback_data="registration_menu")],
-        [InlineKeyboardButton(text="🚪 Пропуска", callback_data="passes_menu")],
-        [InlineKeyboardButton(text="🔍 Поиск пропуска", callback_data="search_pass")],
-        [InlineKeyboardButton(text="📈Статистика", callback_data="statistics_menu")],
-        [InlineKeyboardButton(text="📨 Обращения в УК", callback_data="appeals_management")]  # Новая кнопка
     ])
 
 
 def edit_keyboard_resident():
     return InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text="ФИО", callback_data="edit_fio"),
-                InlineKeyboardButton(text="Номер участка", callback_data="edit_plot")
-            ],
-            [
-                InlineKeyboardButton(text="✅ Готово", callback_data="edit_finish")
-            ]
+            [InlineKeyboardButton(text="ФИО", callback_data="edit_fio"),
+             InlineKeyboardButton(text="Номер участка", callback_data="edit_plot")],
+            [InlineKeyboardButton(text="✅ Готово", callback_data="edit_finish")]
         ])
-
-
-def get_back_button():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="back")]
-    ])
-
-
-def get_admin_menu_with_back():
-    buttons = get_admin_menu().inline_keyboard
-    buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_main")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-
-def get_user_management_menu():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Резиденты", callback_data="residents_manage")],
-        [InlineKeyboardButton(text="Подрядчики", callback_data="contractors_manage")],
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_main")]
-        ])
-
-
-def get_add_menu(user_type: str):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"Добавить {user_type}", callback_data=f"add_{user_type}")],
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_manage")]
-        ])
-
-
-@router.message(CommandStart())
-async def process_start_manager(message: Message):
-    try:
-        await message.answer(
-            text="Здравствуйте менеджер",
-            reply_markup=admin_reply_keyboard
-        )
-        await message.answer(
-            text="Добро пожаловать в меню менеджера",
-            reply_markup=get_admin_menu()
-        )
-    except Exception as e:
-        await bot.send_message(RAZRAB, f'{message.from_user.id} - {str(e)}')
-        await asyncio.sleep(0.05)
-
-
-@router.message(F.text == "Главное меню")
-async def main_menu(message: Message, state: FSMContext):
-    try:
-        await state.clear()
-        await message.answer(
-            text="Добро пожаловать в меню менеджера",
-            reply_markup=get_admin_menu()
-        )
-    except Exception as e:
-        await bot.send_message(RAZRAB, f'{message.from_user.id} - {str(e)}')
-        await asyncio.sleep(0.05)
-
-
-@router.callback_query(F.data.in_({"user_management", "back_to_manage"}))
-async def user_management(callback: CallbackQuery):
-    try:
-        await callback.message.edit_text(
-            text="Выберите категорию пользователей:",
-            reply_markup=get_user_management_menu()
-            )
-    except Exception as e:
-        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
-        await asyncio.sleep(0.05)
-
-
-@router.callback_query(F.data.endswith("manage"))
-async def manage_category(callback: CallbackQuery, state: FSMContext):
-    try:
-        user_type = callback.data.split("_")[0]
-        await state.update_data(user_type=user_type)
-
-        # Для резидентов
-        if user_type == 'residents':
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="Добавить резидента", callback_data=f"add_{user_type}")],
-                [InlineKeyboardButton(text="Список резидентов", callback_data="list_residents")],
-                [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_manage")]
-            ])
-        # Для подрядчиков
-        elif user_type == 'contractors':
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="Добавить подрядчика", callback_data=f"add_{user_type}")],
-                [InlineKeyboardButton(text="Список подрядчиков", callback_data="list_contractors")],
-                [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_manage")]
-            ])
-        else:
-            return
-
-        await callback.message.edit_text(
-            text=f"Управление {user_type}:",
-            reply_markup=keyboard
-        )
-    except Exception as e:
-        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
-        await asyncio.sleep(0.05)
-
-
-@router.callback_query(F.data.startswith("add_"))
-async def start_add_user(callback: CallbackQuery, state: FSMContext):
-    try:
-        await callback.message.answer("Введите телефон пользователя:")
-        await state.set_state(AddUserStates.WAITING_PHONE)
-    except Exception as e:
-        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
-        await asyncio.sleep(0.05)
-
-
-@router.message(F.text, AddUserStates.WAITING_PHONE)
-async def process_phone(message: Message, state: FSMContext):
-    try:
-        data = await state.get_data()
-        user_type = data['user_type']
-        phone = message.text
-        if not is_valid_phone(phone):
-            await message.answer('Телефон должен быть в формате 8XXXXXXXXXX.\nПопробуйте ввести еще раз!')
-            return
-
-        async with AsyncSessionLocal() as session:
-            try:
-                if user_type == 'residents':
-                    new_user = Resident(phone=phone)
-                elif user_type == 'contractors':
-                    new_user = Contractor(phone=phone)
-
-                session.add(new_user)
-                await session.commit()
-                await message.answer(f"Пользователь с телефоном {phone} добавлен в {user_type}!")
-                if user_type == 'residents':
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="Добавить резидента", callback_data=f"add_{user_type}")],
-                        [InlineKeyboardButton(text="Список резидентов", callback_data="list_residents")],
-                        [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_manage")]
-                    ])
-                # Для подрядчиков
-                elif user_type == 'contractors':
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="Добавить подрядчика", callback_data=f"add_{user_type}")],
-                        [InlineKeyboardButton(text="Список подрядчиков", callback_data="list_contractors")],
-                        [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_manage")]
-                    ])
-                else:
-                    return
-
-                await message.answer(
-                    text=f"Управление {user_type}:",
-                    reply_markup=keyboard
-                )
-
-            except Exception as e:
-                await message.answer(f"Ошибка: {str(e)}")
-                await session.rollback()
-
-        await state.clear()
-    except Exception as e:
-        await bot.send_message(RAZRAB, f'{message.from_user.id} - {str(e)}')
-        await asyncio.sleep(0.05)
 
 
 @router.callback_query(F.data == "registration_menu")
@@ -302,7 +97,7 @@ async def show_pending_requests(callback: CallbackQuery):
 
             buttons = [
                 [InlineKeyboardButton(
-                    text=f"Резидент - {req.resident_id}",
+                    text=f"{req.fio}",
                     callback_data=f"view_request_{req.id}"
                 )]
                 for req in requests
@@ -337,7 +132,7 @@ async def show_contractor_requests(callback: CallbackQuery):
 
             buttons = [
                 [InlineKeyboardButton(
-                    text=f"Подрядчик - {req.fio}",
+                    text=f"{req.company}_{req.position}",
                     callback_data=f"view_contractor_request_{req.id}"
                 )] for req in requests
             ]
@@ -448,11 +243,7 @@ async def approve_request(callback: CallbackQuery, state: FSMContext):
             await bot.send_message(
                 chat_id=request.tg_id,
                 text="🎉 Поздравляем с успешной регистрацией в качестве резидента! Для управления нажмите кнопку Главное меню.",
-                reply_markup=ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="Главное меню")]],
-        resize_keyboard=True,
-        is_persistent=True
-    )
+                reply_markup=admin_reply_keyboard
             )
 
             await callback.message.answer(text="✅ Заявка одобрена")
@@ -492,11 +283,7 @@ async def approve_contractor_request(callback: CallbackQuery, state: FSMContext)
             await bot.send_message(
                 request.tg_id,
                 "🎉 Поздравляем с успешной регистрацией в качестве подрядчика! Для управления нажмите кнопку Главное меню.",
-                reply_markup=ReplyKeyboardMarkup(
-                    keyboard=[[KeyboardButton(text="Главное меню")]],
-                    resize_keyboard=True,
-                    is_persistent=True
-                )
+                reply_markup=admin_reply_keyboard
             )
 
         await callback.message.edit_text("✅ Заявка одобрена")
@@ -557,6 +344,7 @@ async def finish_editing(callback: CallbackQuery, state: FSMContext):
                 [InlineKeyboardButton(text="⬅️ Назад", callback_data="requests")]
             ])
 
+
             # Отправляем новое сообщение с актуальными данными
             await callback.message.edit_text(
                 text=text,
@@ -595,15 +383,8 @@ async def finish_editing(callback: CallbackQuery, state: FSMContext):
                 [InlineKeyboardButton(text="⬅️ Назад", callback_data="contractor_requests")]
             ])
 
-            # Удаляем старое сообщение с редактором
-            await bot.delete_message(
-                chat_id=callback.message.chat.id,
-                message_id=callback.message.message_id
-            )
-
             # Отправляем новое сообщение с актуальными данными
-            await bot.send_message(
-                chat_id=callback.message.chat.id,
+            await callback.message.edit_text(
                 text=text,
                 reply_markup=keyboard
             )
@@ -889,7 +670,7 @@ async def show_resident_contractor_requests(callback: CallbackQuery):
                     [InlineKeyboardButton(
                         text=f"{resident.fio}",
                         callback_data=f"view_resident_request_{req.id}"
-                    )] for req in requests
+                    )]
                 )
 
             await callback.message.edit_text(
@@ -955,6 +736,7 @@ async def approve_resident_request(callback: CallbackQuery, state: FSMContext):
             # Обновляем статус заявки
             request.status = 'approved'
             await session.commit()
+
         await bot.send_message(
             chat_id=resident.tg_id,
             text=f"🎉 Заявка на регистрацию Вашего подрядчика ({request.phone}) одобрена! Для завершения регистрации подрядчика, перешлите "
@@ -1007,360 +789,6 @@ async def process_reject_comment(message: Message, state: FSMContext):
         await state.clear()
     except Exception as e:
         await bot.send_message(RAZRAB, f'{message.from_user.id} - {str(e)}')
-        await asyncio.sleep(0.05)
-
-
-@router.callback_query(F.data == "list_residents")
-async def show_residents_list(callback: CallbackQuery):
-    try:
-        async with AsyncSessionLocal() as session:
-            # Получаем всех резидентов со статусом True
-            result = await session.execute(
-                select(Resident).where(Resident.status == True))
-            residents = result.scalars().all()
-
-            if not residents:
-                await callback.answer("Нет зарегистрированных резидентов")
-                return
-
-            buttons = []
-            for resident in residents:
-                # Формируем текст кнопки: ID и ФИО
-                button_text = f"{resident.fio}"
-                # Укорачиваем, если слишком длинное
-                if len(button_text) > 30:
-                    button_text = button_text[:27] + "..."
-
-                buttons.append([InlineKeyboardButton(
-                    text=button_text,
-                    callback_data=f"view_resident_{resident.id}"
-                )])
-
-            # Добавляем кнопку "Назад"
-            buttons.append([InlineKeyboardButton(
-                text="⬅️ Назад",
-                callback_data="residents_manage"
-            )])
-            try:
-                await callback.message.edit_text(
-                    "Список зарегистрированных резидентов:",
-                    reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
-                )
-            except:
-                await callback.message.answer(text="Список зарегистрированных резидентов:",
-                                              reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
-    except Exception as e:
-        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
-        await asyncio.sleep(0.05)
-
-
-@router.callback_query(F.data.startswith("view_resident_"))
-async def view_resident_details(callback: CallbackQuery):
-    try:
-        resident_id = int(callback.data.split("_")[-1])
-        async with AsyncSessionLocal() as session:
-            resident = await session.get(Resident, resident_id)
-            if not resident:
-                await callback.answer("Резидент не найден")
-                return
-
-            # Формируем текст
-            text = (
-                f"ID: {resident.id}\n"
-                f"ФИО: {resident.fio}\n"
-                f"Телефон: {resident.phone}\n"
-                f"Номер участка: {resident.plot_number}\n"
-                f"TG: @{resident.username}\n"
-                f"Время регистрации: {resident.time_registration}"
-            )
-
-            # Клавиатура с кнопкой "Назад" к списку резидентов
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🗑 Удалить", callback_data=f"delete_resident_{resident_id}")],
-                [InlineKeyboardButton(text="⬅️ Назад", callback_data="list_residents")]
-            ])
-
-            await callback.message.edit_text(
-                text=text,
-                reply_markup=keyboard
-            )
-            await callback.answer()
-    except Exception as e:
-        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
-        await asyncio.sleep(0.05)
-
-
-# ... существующий код ...
-
-@router.callback_query(F.data == "list_contractors")
-async def show_contractors_list(callback: CallbackQuery):
-    try:
-        async with AsyncSessionLocal() as session:
-            # Получаем всех подрядчиков со статусом True
-            result = await session.execute(
-                select(Contractor).where(Contractor.status == True))
-            contractors = result.scalars().all()
-
-            if not contractors:
-                await callback.answer("Нет зарегистрированных подрядчиков")
-                return
-
-            buttons = []
-            for contractor in contractors:
-                # Формируем текст кнопки: ID и ФИО
-                button_text = f"{contractor.company}_{contractor.position}"
-                # Укорачиваем, если слишком длинное
-                if len(button_text) > 30:
-                    button_text = button_text[:27] + "..."
-
-                buttons.append([InlineKeyboardButton(
-                    text=button_text,
-                    callback_data=f"view_contractor_{contractor.id}"
-                )])
-
-            # Добавляем кнопку "Назад"
-            buttons.append([InlineKeyboardButton(
-                text="⬅️ Назад",
-                callback_data="contractors_manage"
-            )])
-
-            try:
-                await callback.message.edit_text(
-                    "Список зарегистрированных подрядчиков:",
-                    reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
-                )
-            except:
-                await callback.message.answer(
-                    text="Список зарегистрированных подрядчиков:",
-                    reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
-                )
-    except Exception as e:
-        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
-        await asyncio.sleep(0.05)
-
-
-@router.callback_query(F.data.startswith("view_contractor_"))
-async def view_contractor_details(callback: CallbackQuery):
-    try:
-        contractor_id = int(callback.data.split("_")[-1])
-        async with AsyncSessionLocal() as session:
-            contractor = await session.get(Contractor, contractor_id)
-            if not contractor:
-                await callback.answer("Подрядчик не найден")
-                return
-
-            # Формируем текст
-            text = (
-                f"ID: {contractor.id}\n"
-                f"ФИО: {contractor.fio}\n"
-                f"Телефон: {contractor.phone}\n"
-                f"Компания: {contractor.company}\n"
-                f"Должность: {contractor.position}\n"
-                f"Принадлежность: {contractor.affiliation}\n"
-                f"TG: @{contractor.username}\n"
-                f"Возможность добавлять субподрядчиков: {contractor.can_add_contractor}\n"
-                f"Время регистрации: {contractor.time_registration}"
-            )
-
-            # Клавиатура с кнопкой "Назад" к списку подрядчиков
-            if contractor.can_add_contractor == False:
-                text_admin = '✅Подрядчик-администратор'
-            else:
-                text_admin = '❌Подрядчик-администратор'
-
-            # Клавиатура с кнопкой "Назад" к списку подрядчиков
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🗑 Удалить", callback_data=f"delete_contractor_{contractor_id}")],
-                [InlineKeyboardButton(text=text_admin, callback_data=f"change_admin_{contractor_id}")],
-                [InlineKeyboardButton(text="⬅️ Назад", callback_data="list_contractors")]
-            ])
-
-            await callback.message.edit_text(
-                text=text,
-                reply_markup=keyboard
-            )
-            await callback.answer()
-    except Exception as e:
-        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
-        await asyncio.sleep(0.05)
-
-
-@router.callback_query(F.data.startswith("delete_resident_"))
-async def confirm_delete_resident(callback: CallbackQuery):
-    try:
-        resident_id = int(callback.data.split("_")[-1])
-        await callback.message.answer(
-            "Вы точно хотите удалить резидента?",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="✅ Да", callback_data=f"confirm_delete_yes_{resident_id}")],
-                [InlineKeyboardButton(text="❌ Нет", callback_data=f"confirm_delete_no_{resident_id}")]
-            ])
-        )
-    except Exception as e:
-        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
-        await asyncio.sleep(0.05)
-
-
-@router.callback_query(F.data.startswith("confirm_delete_no_"))
-async def cancel_delete(callback: CallbackQuery):
-    try:
-        resident_id = int(callback.data.split("_")[-1])
-        # Возвращаемся к просмотру резидента
-        await view_resident_details(callback)
-    except Exception as e:
-        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
-        await asyncio.sleep(0.05)
-
-
-@router.callback_query(F.data.startswith("confirm_delete_yes_"))
-async def execute_delete(callback: CallbackQuery, state: FSMContext):
-    try:
-        resident_id = int(callback.data.split("_")[-1])
-        async with AsyncSessionLocal() as session:
-            # Удаляем связанные заявки
-            stmt1 = delete(RegistrationRequest).where(RegistrationRequest.resident_id == resident_id)
-            stmt2 = delete(ResidentContractorRequest).where(ResidentContractorRequest.resident_id == resident_id)
-            stmt3 = delete(PermanentPass).where(PermanentPass.resident_id == resident_id)
-            stmt4 = delete(TemporaryPass).where(TemporaryPass.resident_id == resident_id)
-            stmt5 = delete(Appeal).where(Appeal.resident_id == resident_id)
-            await session.execute(stmt1)
-            await session.execute(stmt2)
-            await session.execute(stmt3)
-            await session.execute(stmt4)
-            await session.execute(stmt5)
-
-            # Удаляем резидента
-            stmt6 = delete(Resident).where(Resident.id == resident_id)
-            await session.execute(stmt6)
-            await session.commit()
-
-        await callback.message.answer("✅ Резидент удален")
-        # Возвращаемся в меню управления резидентами
-        user_type = 'residents'
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Добавить резидента", callback_data=f"add_{user_type}")],
-            [InlineKeyboardButton(text="Список резидентов", callback_data="list_residents")],
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_manage")]
-        ])
-        await callback.message.answer(
-            text=f"Управление {user_type}:",
-            reply_markup=keyboard
-        )
-    except Exception as e:
-        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
-        await asyncio.sleep(0.05)
-
-
-# Подтверждение удаления подрядчика
-@router.callback_query(F.data.startswith("delete_contractor_"))
-async def confirm_delete_contractor(callback: CallbackQuery):
-    try:
-        contractor_id = int(callback.data.split("_")[-1])
-        await callback.message.answer(
-            "Вы точно хотите удалить подрядчика?",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="✅ Да", callback_data=f"confirm_del_cont_yes_{contractor_id}")],
-                [InlineKeyboardButton(text="❌ Нет", callback_data=f"confirm_del_cont_no_{contractor_id}")]
-            ])
-        )
-    except Exception as e:
-        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
-        await asyncio.sleep(0.05)
-
-
-# Отмена удаления подрядчика
-@router.callback_query(F.data.startswith("confirm_del_cont_no_"))
-async def cancel_delete_contractor(callback: CallbackQuery):
-    try:
-        contractor_id = int(callback.data.split("_")[-1])
-        # Возвращаемся к просмотру подрядчика
-        await view_contractor_details(callback)
-    except Exception as e:
-        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
-        await asyncio.sleep(0.05)
-
-
-# Выполнение удаления подрядчика
-@router.callback_query(F.data.startswith("confirm_del_cont_yes_"))
-async def execute_delete_contractor(callback: CallbackQuery, state: FSMContext):
-    try:
-        contractor_id = int(callback.data.split("_")[-1])
-        async with AsyncSessionLocal() as session:
-            # Удаляем связанные записи
-            stmt1 = delete(ContractorRegistrationRequest).where(
-                ContractorRegistrationRequest.contractor_id == contractor_id
-            )
-            stmt2 = delete(TemporaryPass).where(
-                TemporaryPass.contractor_id == contractor_id
-            )
-            await session.execute(stmt1)
-            await session.execute(stmt2)
-
-            # Удаляем самого подрядчика
-            stmt3 = delete(Contractor).where(Contractor.id == contractor_id)
-            await session.execute(stmt3)
-            await session.commit()
-
-        await callback.message.answer("✅ Подрядчик удален")
-
-        # Возвращаемся к списку подрядчиков
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Добавить подрядчика", callback_data=f"add_contractors")],
-            [InlineKeyboardButton(text="Список подрядчиков", callback_data="list_contractors")],
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_manage")]
-        ])
-        await callback.message.answer(
-            text=f"Управление contractors:",
-            reply_markup=keyboard
-        )
-    except Exception as e:
-        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
-        await asyncio.sleep(0.05)
-
-
-@router.callback_query(F.data.startswith("change_admin_"))
-async def change_contractor_admin(callback: CallbackQuery):
-    try:
-        contractor_id = int(callback.data.split("_")[-1])
-        async with AsyncSessionLocal() as session:
-            contractor = await session.get(Contractor, contractor_id)
-            if not contractor:
-                await callback.answer("Подрядчик не найден")
-                return
-
-            # Формируем текст
-            text = (
-                f"ID: {contractor.id}\n"
-                f"ФИО: {contractor.fio}\n"
-                f"Телефон: {contractor.phone}\n"
-                f"Компания: {contractor.company}\n"
-                f"Должность: {contractor.position}\n"
-                f"Принадлежность: {contractor.affiliation}\n"
-                f"TG: @{contractor.username}\n"
-                f"Возможность добавлять субподрядчиков: {not contractor.can_add_contractor}\n"
-                f"Время регистрации: {contractor.time_registration}"
-            )
-            if contractor.can_add_contractor == False:
-                text_admin = '✅Подрядчик-администратор'
-            else:
-                text_admin = '❌Подрядчик-администратор'
-
-            # Клавиатура с кнопкой "Назад" к списку подрядчиков
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🗑 Удалить", callback_data=f"delete_contractor_{contractor_id}")],
-                [InlineKeyboardButton(text=text_admin, callback_data=f"change_admin_{contractor_id}")],
-                [InlineKeyboardButton(text="⬅️ Назад", callback_data="list_contractors")]
-            ])
-
-            await callback.message.edit_text(
-                text=text,
-                reply_markup=keyboard
-            )
-            await callback.answer()
-            contractor.can_add_contractor = not contractor.can_add_contractor
-            await session.commit()
-    except Exception as e:
-        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
         await asyncio.sleep(0.05)
 
 

@@ -20,8 +20,8 @@ from db.models import (
     ContractorRegistrationRequest
 )
 from db.util import update_user_blocked, update_user_unblocked
-from handlers_admin import is_valid_phone, admin_reply_keyboard
-from handlers_security import security_reply_keyboard
+from handlers.handlers_admin_user_management import is_valid_phone, admin_reply_keyboard
+from handlers.handlers_security import security_reply_keyboard
 
 router = Router()
 

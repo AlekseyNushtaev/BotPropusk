@@ -10,12 +10,13 @@ import datetime
 from sqlalchemy import select
 
 from bot import bot
-from config import ADMIN_IDS
+from config import ADMIN_IDS, RAZRAB
 from db.models import AsyncSessionLocal, TemporaryPass, Manager, PermanentPass
 from date_parser import parse_date
-from db.util import get_active_admins_and_managers_tg_ids, get_active_admins_managers_sb_tg_ids
-from handlers_admin import admin_reply_keyboard
-from handlers_admin_temporary_pass import get_passes_menu
+from db.util import get_active_admins_managers_sb_tg_ids
+from handlers.handlers_admin_permanent_pass import get_passes_menu
+from handlers.handlers_admin_user_management import admin_reply_keyboard
+
 
 router = Router()
 
@@ -27,6 +28,7 @@ class TemporarySelfPassStates(StatesGroup):
     INPUT_CAR_NUMBER = State()
     INPUT_CAR_BRAND = State()
     INPUT_CARGO_TYPE = State()
+    INPUT_DESTINATION = State()
     INPUT_PURPOSE = State()
     INPUT_VISIT_DATE = State()
     INPUT_COMMENT = State()
@@ -36,6 +38,7 @@ class PermanentSelfPassStates(StatesGroup):
     INPUT_CAR_BRAND = State()
     INPUT_CAR_MODEL = State()
     INPUT_CAR_NUMBER = State()
+    INPUT_DESTINATION = State()
     INPUT_CAR_OWNER = State()
 
 
@@ -104,40 +107,62 @@ async def process_self_weight_category(callback: CallbackQuery, state: FSMContex
     await state.set_state(TemporarySelfPassStates.CHOOSE_LENGTH_CATEGORY)
 
 
-@router.callback_query(
-    TemporarySelfPassStates.CHOOSE_LENGTH_CATEGORY,
-    F.data.startswith("self_length_")
-)
-async def process_self_length_category(callback: CallbackQuery, state: FSMContext):
-    """Обработка длины транспортного средства"""
-    length_category = callback.data.split("_")[-1]
-    await state.update_data(length_category=length_category)
-    await callback.message.answer("Введите номер машины:")
-    await state.set_state(TemporarySelfPassStates.INPUT_CAR_NUMBER)
-
-
-@router.message(F.text, TemporarySelfPassStates.INPUT_CAR_NUMBER)
-async def process_self_car_number(message: Message, state: FSMContext):
-    """Обработка номера машины"""
-    await state.update_data(car_number=message.text)
-    await message.answer("Введите марку машины:")
-    await state.set_state(TemporarySelfPassStates.INPUT_CAR_BRAND)
-
-
-@router.message(F.text, TemporarySelfPassStates.INPUT_CAR_BRAND)
-async def process_self_car_brand(message: Message, state: FSMContext):
-    """Обработка марки машины"""
-    await state.update_data(car_brand=message.text)
-    await message.answer("Введите тип груза:")
-    await state.set_state(TemporarySelfPassStates.INPUT_CARGO_TYPE)
+@router.callback_query(TemporarySelfPassStates.CHOOSE_LENGTH_CATEGORY, F.data.startswith("self_length_"))
+async def process_length_category(callback: CallbackQuery, state: FSMContext):
+    try:
+        length_category = callback.data.split("_")[-1]
+        await state.update_data(length_category=length_category)
+        await callback.message.answer("Укажите тип груза:")
+        await state.set_state(TemporarySelfPassStates.INPUT_CARGO_TYPE)
+    except Exception as e:
+        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
+        await asyncio.sleep(0.05)
 
 
 @router.message(F.text, TemporarySelfPassStates.INPUT_CARGO_TYPE)
-async def process_self_cargo_type(message: Message, state: FSMContext):
-    """Обработка типа груза"""
-    await state.update_data(cargo_type=message.text)
-    await message.answer("Укажите назначение визита:")
-    await state.set_state(TemporarySelfPassStates.INPUT_PURPOSE)
+async def process_cargo_type(message: Message, state: FSMContext):
+    try:
+        await state.update_data(cargo_type=message.text)
+        await message.answer("Введите номер машины:")
+        await state.set_state(TemporarySelfPassStates.INPUT_CAR_NUMBER)
+    except Exception as e:
+        await bot.send_message(RAZRAB, f'{message.from_user.id} - {str(e)}')
+        await asyncio.sleep(0.05)
+
+
+# Обработка номера машины
+@router.message(F.text, TemporarySelfPassStates.INPUT_CAR_NUMBER)
+async def process_car_number(message: Message, state: FSMContext):
+    try:
+        await state.update_data(car_number=message.text)
+        await message.answer("Введите марку машины:")
+        await state.set_state(TemporarySelfPassStates.INPUT_CAR_BRAND)
+    except Exception as e:
+        await bot.send_message(RAZRAB, f'{message.from_user.id} - {str(e)}')
+        await asyncio.sleep(0.05)
+
+
+@router.message(F.text, TemporarySelfPassStates.INPUT_CAR_BRAND)
+async def process_car_brand(message: Message, state: FSMContext):
+    try:
+        await state.update_data(car_brand=message.text)
+        await message.answer("Укажите пункт назначения(номер участка):")
+        await state.set_state(TemporarySelfPassStates.INPUT_DESTINATION)
+    except Exception as e:
+        await bot.send_message(RAZRAB, f'{message.from_user.id} - {str(e)}')
+        await asyncio.sleep(0.05)
+
+
+# Обработка марки машины
+@router.message(F.text, TemporarySelfPassStates.INPUT_DESTINATION)
+async def process_destination(message: Message, state: FSMContext):
+    try:
+        await state.update_data(destination=message.text)
+        await message.answer("Укажите цель визита:")
+        await state.set_state(TemporarySelfPassStates.INPUT_PURPOSE)
+    except Exception as e:
+        await bot.send_message(RAZRAB, f'{message.from_user.id} - {str(e)}')
+        await asyncio.sleep(0.05)
 
 
 @router.message(F.text, TemporarySelfPassStates.INPUT_PURPOSE)
@@ -191,8 +216,9 @@ async def process_self_comment_and_save(message: Message, state: FSMContext):
                 length_category=data.get("length_category"),
                 car_number=data["car_number"].upper(),
                 car_brand=data["car_brand"],
-                cargo_type=data["cargo_type"],
+                cargo_type=data.get("cargo_type"),
                 purpose=data["purpose"],
+                destination=data["destination"],
                 visit_date=data["visit_date"],
                 owner_comment=comment,
                 security_comment=f"Выписал {owner_info}",
@@ -246,6 +272,13 @@ async def process_self_car_model(message: Message, state: FSMContext):
 @router.message(F.text, PermanentSelfPassStates.INPUT_CAR_NUMBER)
 async def process_self_car_number(message: Message, state: FSMContext):
     await state.update_data(car_number=message.text)
+    await message.answer("Укажите пункт назначения(номер участка):")
+    await state.set_state(PermanentSelfPassStates.INPUT_DESTINATION)
+
+
+@router.message(F.text, PermanentSelfPassStates.INPUT_DESTINATION)
+async def process_self_destination(message: Message, state: FSMContext):
+    await state.update_data(destination=message.text)
     await message.answer("Укажите владельца автомобиля:")
     await state.set_state(PermanentSelfPassStates.INPUT_CAR_OWNER)
 
@@ -261,6 +294,7 @@ async def process_self_car_owner(message: Message, state: FSMContext):
                 car_brand=data['car_brand'],
                 car_model=data['car_model'],
                 car_number=data['car_number'].upper(),
+                destination=data['destination'],
                 car_owner=message.text,
                 status='approved',
                 security_comment=f"Выписал {owner_info}",

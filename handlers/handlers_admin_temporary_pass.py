@@ -16,8 +16,8 @@ from db.models import AsyncSessionLocal, Resident, Contractor, TemporaryPass
 from config import ADMIN_IDS, PAGE_SIZE, RAZRAB
 from db.util import get_active_admins_managers_sb_tg_ids
 from filters import IsAdminOrManager
-from handlers_admin import admin_reply_keyboard
-from handlers_admin_permanent_pass import passes_menu
+from handlers.handlers_admin_user_management import admin_reply_keyboard
+from handlers.handlers_admin_permanent_pass import passes_menu
 
 router = Router()
 router.message.filter(IsAdminOrManager())
@@ -25,6 +25,7 @@ router.callback_query.filter(IsAdminOrManager())
 
 
 class TemporaryPassStates(StatesGroup):
+    AWAIT_EDIT_DESTINATION = State()
     AWAIT_REJECT_COMMENT = State()
     EDITING_PASS = State()
     AWAIT_EDIT_CAR_BRAND = State()
@@ -35,15 +36,6 @@ class TemporaryPassStates(StatesGroup):
     AWAIT_EDIT_VISIT_DATE = State()
     AWAIT_EDIT_COMMENT = State()
     AWAIT_EDIT_SECURITY_COMMENT = State()
-
-
-def get_passes_menu():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Постоянные пропуска", callback_data="permanent_passes_menu")],
-        [InlineKeyboardButton(text="Временные пропуска", callback_data="temporary_passes_menu")],
-        [InlineKeyboardButton(text="Выписать временный пропуск", callback_data="issue_self_pass")],
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_main")]
-    ])
 
 
 def get_temporary_passes_management():
@@ -233,9 +225,10 @@ async def view_temp_pass_details(callback: CallbackQuery, state: FSMContext):
                 f"Тип ТС: {'Легковой' if pass_request.vehicle_type == 'car' else 'Грузовой'}\n"
                 f"Категория веса: {pass_request.weight_category or 'Н/Д'}\n"
                 f"Категория длины: {pass_request.length_category or 'Н/Д'}\n"
+                f"Тип груза: {pass_request.cargo_type or 'Н/Д'}\n"
                 f"Номер: {pass_request.car_number}\n"
                 f"Марка: {pass_request.car_brand}\n"
-                f"Тип груза: {pass_request.cargo_type}\n"
+                f"Пункт назначения: {pass_request.destination}\n"
                 f"Цель визита: {pass_request.purpose}\n"
                 f"Дата визита: {pass_request.visit_date.strftime('%d.%m.%Y')}\n"
                 f"Комментарий владельца: {pass_request.owner_comment or 'нет'}\n"
@@ -417,6 +410,7 @@ def get_temp_edit_pass_keyboard():
             InlineKeyboardButton(text="Коммент. владельца", callback_data="edit_temp_comment"),
         ],
         [
+            InlineKeyboardButton(text="Пункт назначения", callback_data="edit_temp_destination"),
             InlineKeyboardButton(text="Коммент. для СБ", callback_data="edit_temp_security_comment"),
         ],
         [
@@ -451,6 +445,7 @@ async def finish_editing_temp_pass(callback: CallbackQuery, state: FSMContext):
                 f"Номер: {pass_request.car_number}\n"
                 f"Марка: {pass_request.car_brand}\n"
                 f"Тип груза: {pass_request.cargo_type}\n"
+                f"Пункт назначения: {pass_request.destination}\n"
                 f"Цель визита: {pass_request.purpose}\n"
                 f"Дата визита: {pass_request.visit_date.strftime('%d.%m.%Y')}\n"
                 f"Комментарий владельца: {pass_request.owner_comment or 'нет'}\n"
@@ -496,6 +491,9 @@ async def handle_edit_temp_pass_actions(callback: CallbackQuery, state: FSMConte
         elif action == "cargo_type":
             await callback.message.answer("Введите новый тип груза:")
             await state.set_state(TemporaryPassStates.AWAIT_EDIT_CARGO_TYPE)
+        elif action == "destination":
+            await callback.message.answer("Введите новую пункт назначения(номер участка):")
+            await state.set_state(TemporaryPassStates.AWAIT_EDIT_DESTINATION)
         elif action == "purpose":
             await callback.message.answer("Введите новую цель визита:")
             await state.set_state(TemporaryPassStates.AWAIT_EDIT_PURPOSE)
@@ -559,6 +557,23 @@ async def update_temp_cargo_type(message: Message, state: FSMContext):
         async with AsyncSessionLocal() as session:
             pass_request = await session.get(TemporaryPass, pass_id)
             pass_request.cargo_type = message.text
+            await session.commit()
+            await update_temp_pass_view(message, pass_request, session)
+        await state.set_state(TemporaryPassStates.EDITING_PASS)
+    except Exception as e:
+        await bot.send_message(RAZRAB, f'{message.from_user.id} - {str(e)}')
+        await asyncio.sleep(0.05)
+
+
+@router.message(F.text, TemporaryPassStates.AWAIT_EDIT_DESTINATION)
+async def update_temp_purpose(message: Message, state: FSMContext):
+    try:
+        data = await state.get_data()
+        pass_id = data.get('current_temp_pass_id')
+
+        async with AsyncSessionLocal() as session:
+            pass_request = await session.get(TemporaryPass, pass_id)
+            pass_request.destination = message.text
             await session.commit()
             await update_temp_pass_view(message, pass_request, session)
         await state.set_state(TemporaryPassStates.EDITING_PASS)
@@ -663,6 +678,7 @@ async def update_temp_pass_view(message: Message, pass_request, session):
         f"Номер: {pass_request.car_number}\n"
         f"Марка: {pass_request.car_brand}\n"
         f"Тип груза: {pass_request.cargo_type}\n"
+        f"Пункт назначения: {pass_request.destination}\n"
         f"Цель визита: {pass_request.purpose}\n"
         f"Дата визита: {pass_request.visit_date.strftime('%d.%m.%Y')}\n"
         f"Комментарий владельца: {pass_request.owner_comment or 'нет'}\n"

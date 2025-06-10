@@ -1,21 +1,12 @@
 import asyncio
 import logging
 
-import handlers_admin
-import handlers_admin_appeal
-import handlers_admin_permanent_pass
-import handlers_admin_search
-import handlers_admin_self_pass
-import handlers_admin_statistic
-import handlers_admin_temporary_pass
-import handlers_contractor
-import handlers_for_all
+from handlers import handlers_admin_search, handlers_contractor, handlers_for_all, handlers_admin_registration, \
+    handlers_admin_temporary_pass, handlers_admin_user_management, handlers_resident_appeal, handlers_admin_appeal, \
+    handlers_resident, handlers_admin_permanent_pass, handlers_admin_self_pass, handlers_admin_statistic, \
+    handlers_security
 from aiogram import Dispatcher
 
-import handlers_manager
-import handlers_resident
-import handlers_resident_appeal
-import handlers_security
 from bot import bot
 from db.models import create_tables
 
@@ -28,7 +19,8 @@ async def main() -> None:
     logging.info('Starting bot')
 
     dp = Dispatcher()
-    dp.include_router(handlers_admin.router)
+    dp.include_router(handlers_admin_user_management.router)
+    dp.include_router(handlers_admin_registration.router)
     dp.include_router(handlers_admin_self_pass.router)
     dp.include_router(handlers_admin_appeal.router)
     dp.include_router(handlers_admin_search.router)
@@ -36,7 +28,6 @@ async def main() -> None:
     dp.include_router(handlers_admin_permanent_pass.router)
     dp.include_router(handlers_admin_temporary_pass.router)
     dp.include_router(handlers_security.router)
-    dp.include_router(handlers_manager.router)
     dp.include_router(handlers_contractor.router)
     dp.include_router(handlers_resident.router)
     dp.include_router(handlers_resident_appeal.router)

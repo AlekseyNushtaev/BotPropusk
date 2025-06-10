@@ -14,7 +14,7 @@ from db.models import AsyncSessionLocal, Resident, PermanentPass
 from config import PAGE_SIZE, RAZRAB
 from db.util import get_active_admins_managers_sb_tg_ids
 from filters import IsAdminOrManager
-from handlers_admin import admin_reply_keyboard
+from handlers.handlers_admin_user_management import admin_reply_keyboard
 
 router = Router()
 router.message.filter(IsAdminOrManager())
@@ -22,6 +22,7 @@ router.callback_query.filter(IsAdminOrManager())
 
 
 class PermanentPassStates(StatesGroup):
+    AWAIT_EDIT_DESTINATION = State()
     AWAIT_REJECT_COMMENT = State()
     EDITING_PASS = State()
     AWAIT_EDIT_CAR_BRAND = State()
@@ -199,6 +200,7 @@ async def view_pass_details(callback: CallbackQuery, state: FSMContext):
                 f"Модель: {pass_request.car_model}\n"
                 f"Номер: {pass_request.car_number}\n"
                 f"Владелец: {pass_request.car_owner}\n"
+                f"Пункт назначения: {pass_request.destination}\n"
                 f"Комментарий для СБ: {pass_request.security_comment or 'нет'}\n"
                 f"Время создания: {pass_request.created_at.strftime('%d.%m.%Y %H:%M')}"
             )
@@ -347,6 +349,7 @@ def get_edit_pass_keyboard():
             InlineKeyboardButton(text="Владелец", callback_data="edit_car_owner"),
         ],
         [
+            InlineKeyboardButton(text="Пункт назначения", callback_data="edit_car_destination"),
             InlineKeyboardButton(text="Коммент. для СБ", callback_data="edit_security_comment"),
         ],
         [
@@ -388,6 +391,7 @@ async def finish_editing_pass(callback: CallbackQuery, state: FSMContext):
                 f"Модель: {pass_request.car_model}\n"
                 f"Номер: {pass_request.car_number}\n"
                 f"Владелец: {pass_request.car_owner}\n"
+                f"Пункт назначения: {pass_request.destination}\n"
                 f"Комментарий для СБ: {pass_request.security_comment or 'нет'}\n"
                 f"Время создания: {pass_request.created_at.strftime('%d.%m.%Y %H:%M')}"
             )
@@ -430,6 +434,9 @@ async def handle_edit_pass_actions(callback: CallbackQuery, state: FSMContext):
         elif action == "car_owner":
             await callback.message.answer("Введите нового владельца машины:")
             await state.set_state(PermanentPassStates.AWAIT_EDIT_CAR_OWNER)
+        elif action == "car_destination":
+            await callback.message.answer("Введите новый номер участка:")
+            await state.set_state(PermanentPassStates.AWAIT_EDIT_DESTINATION)
         elif action == "security_comment":
             await callback.message.answer("Введите новый комментарий для СБ:")
             await state.set_state(PermanentPassStates.AWAIT_EDIT_SECURITY_COMMENT)
@@ -465,6 +472,7 @@ async def update_car_brand(message: Message, state: FSMContext):
                 f"Модель: {pass_request.car_model}\n"
                 f"Номер: {pass_request.car_number}\n"
                 f"Владелец: {pass_request.car_owner}\n"
+                f"Пункт назначения: {pass_request.destination}\n"
                 f"Комментарий для СБ: {pass_request.security_comment or 'нет'}\n"
                 f"Время создания: {pass_request.created_at.strftime('%d.%m.%Y %H:%M')}"
             )
@@ -505,6 +513,7 @@ async def update_car_model(message: Message, state: FSMContext):
                 f"Модель: {message.text}\n"
                 f"Номер: {pass_request.car_number}\n"
                 f"Владелец: {pass_request.car_owner}\n"
+                f"Пункт назначения: {pass_request.destination}\n"
                 f"Комментарий для СБ: {pass_request.security_comment or 'нет'}\n"
                 f"Время создания: {pass_request.created_at.strftime('%d.%m.%Y %H:%M')}"
             )
@@ -544,6 +553,7 @@ async def update_car_number(message: Message, state: FSMContext):
                 f"Модель: {pass_request.car_model}\n"
                 f"Номер: {message.text}\n"
                 f"Владелец: {pass_request.car_owner}\n"
+                f"Пункт назначения: {pass_request.destination}\n"
                 f"Комментарий для СБ: {pass_request.security_comment or 'нет'}\n"
                 f"Время создания: {pass_request.created_at.strftime('%d.%m.%Y %H:%M')}"
             )
@@ -583,7 +593,47 @@ async def update_car_owner(message: Message, state: FSMContext):
                 f"Модель: {pass_request.car_model}\n"
                 f"Номер: {pass_request.car_number}\n"
                 f"Владелец: {message.text}\n"
+                f"Пункт назначения: {pass_request.destination}\n"
                 f"Комментарий для СБ: {pass_request.security_comment or 'нет'}\n"
+                f"Время создания: {pass_request.created_at.strftime('%d.%m.%Y %H:%M')}"
+            )
+
+            await message.answer(
+                text,
+                reply_markup=get_edit_pass_keyboard()
+            )
+        await state.set_state(PermanentPassStates.EDITING_PASS)
+    except Exception as e:
+        await bot.send_message(RAZRAB, f'{message.from_user.id} - {str(e)}')
+        await asyncio.sleep(0.05)
+
+
+@router.message(F.text, PermanentPassStates.AWAIT_EDIT_DESTINATION)
+async def update_destination(message: Message, state: FSMContext):
+    try:
+        data = await state.get_data()
+        pass_id = data.get('current_pass_id')
+
+        async with AsyncSessionLocal() as session:
+            pass_request = await session.get(PermanentPass, pass_id)
+            pass_request.destination = message.text
+            await session.commit()
+
+            result = await session.execute(
+                select(PermanentPass, Resident.fio)
+                .join(Resident, Resident.id == PermanentPass.resident_id)
+                .where(PermanentPass.id == pass_id)
+            )
+            pass_request, fio = result.first()
+
+            text = (
+                f"ФИО: {fio}\n"
+                f"Марка: {pass_request.car_brand}\n"
+                f"Модель: {pass_request.car_model}\n"
+                f"Номер: {pass_request.car_number}\n"
+                f"Владелец: {pass_request.car_owner}\n"
+                f"Пункт назначения: {message.text}\n"
+                f"Комментарий для СБ: {pass_request.security_comment}\n"
                 f"Время создания: {pass_request.created_at.strftime('%d.%m.%Y %H:%M')}"
             )
 
@@ -622,6 +672,7 @@ async def update_security_comment(message: Message, state: FSMContext):
                 f"Модель: {pass_request.car_model}\n"
                 f"Номер: {pass_request.car_number}\n"
                 f"Владелец: {pass_request.car_owner}\n"
+                f"Пункт назначения: {pass_request.destination}\n"
                 f"Комментарий для СБ: {message.text}\n"
                 f"Время создания: {pass_request.created_at.strftime('%d.%m.%Y %H:%M')}"
             )
@@ -771,6 +822,7 @@ async def view_pass_details(callback: CallbackQuery, state: FSMContext):
             f"Модель: {pass_request.car_model}\n"
             f"Номер: {pass_request.car_number}\n"
             f"Владелец: {pass_request.car_owner}\n"
+            f"Пункт назначения: {pass_request.destination}\n"
             f"Комментарий для СБ: {pass_request.security_comment or 'нет'}\n"
             f"Время создания: {pass_request.created_at.strftime('%d.%m.%Y %H:%M')}\n"
             f"Время подтверждения: {pass_request.time_registration.strftime('%d.%m.%Y %H:%M')}"
@@ -910,6 +962,7 @@ async def view_pass_details(callback: CallbackQuery, state: FSMContext):
                 f"Модель: {pass_request.car_model}\n"
                 f"Номер: {pass_request.car_number}\n"
                 f"Владелец: {pass_request.car_owner}\n"
+                f"Пункт назначения: {pass_request.destination}\n"
                 f"Комментарий для резидента: {pass_request.resident_comment or 'нет'}\n"
                 f"Время создания: {pass_request.created_at.strftime('%d.%m.%Y %H:%M')}\n"
                 f"Время отклонения: {pass_request.time_registration.strftime('%d.%m.%Y %H:%M')}"

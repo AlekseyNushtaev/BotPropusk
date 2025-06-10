@@ -171,6 +171,7 @@ class PermanentPass(Base):
     status: Mapped[str] = mapped_column(default='pending')    # pending/approved/rejected
     resident_comment: Mapped[str] = mapped_column(nullable=True)   # Комментарий резиденту
     security_comment: Mapped[str] = mapped_column(nullable=True)   # Комментарий для СБ
+    destination: Mapped[str] = mapped_column(nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(default=datetime.datetime.now)
     time_registration: Mapped[datetime.datetime] = mapped_column(nullable=True)
     resident = relationship("Resident")
@@ -188,13 +189,14 @@ class TemporaryPass(Base):
     length_category: Mapped[str] = mapped_column(String(20), nullable=True)  # short/long
     car_number: Mapped[str] = mapped_column(String(20))
     car_brand: Mapped[str] = mapped_column(String(50))
-    cargo_type: Mapped[str] = mapped_column(String(100))
+    cargo_type: Mapped[str] = mapped_column(String(100), nullable=True)
     purpose: Mapped[str] = mapped_column(String(100))
     visit_date: Mapped[datetime.date] = mapped_column()
     owner_comment: Mapped[str] = mapped_column(nullable=True)
     resident_comment: Mapped[str] = mapped_column(nullable=True)
     security_comment: Mapped[str] = mapped_column(nullable=True)
     status: Mapped[str] = mapped_column(default='pending')  # pending/approved/rejected
+    destination: Mapped[str] = mapped_column(nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(default=datetime.datetime.now)
     time_registration: Mapped[datetime.datetime] = mapped_column(nullable=True)
 
