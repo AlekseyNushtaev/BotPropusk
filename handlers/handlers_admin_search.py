@@ -6,12 +6,12 @@ from aiogram.fsm import state
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_, and_
 from datetime import datetime, timedelta
 
 from bot import bot
 from db.models import AsyncSessionLocal, PermanentPass, TemporaryPass, Resident, Contractor
-from config import PASS_TIME, ADMIN_IDS, RAZRAB
+from config import PASS_TIME, ADMIN_IDS, RAZRAB, FUTURE_LIMIT
 from filters import IsAdminOrManager
 
 router = Router()
@@ -83,6 +83,17 @@ async def search_by_number(message: Message, state: FSMContext):
             )
             admin_result = await session.execute(admin_stmt)
             admin_passes = admin_result.scalars()
+            future_limit = today + timedelta(days=FUTURE_LIMIT)
+            temp_condition = or_(
+                and_(
+                    TemporaryPass.visit_date <= today,
+                    func.date(TemporaryPass.visit_date, f'+{PASS_TIME} days') >= today
+                ),
+                and_(
+                    TemporaryPass.visit_date > today,
+                    TemporaryPass.visit_date <= future_limit
+                )
+            )
 
             temp_res_stmt = select(
                 TemporaryPass,
@@ -91,8 +102,7 @@ async def search_by_number(message: Message, state: FSMContext):
             ).join(Resident, TemporaryPass.resident_id == Resident.id).where(
                 TemporaryPass.car_number == car_number,
                 TemporaryPass.status == 'approved',
-                TemporaryPass.visit_date <= today,
-                func.date(TemporaryPass.visit_date, f'+{PASS_TIME} days') >= today)
+                temp_condition)
 
             temp_res_result = await session.execute(temp_res_stmt)
             temp_res_passes = temp_res_result.all()
@@ -108,8 +118,7 @@ async def search_by_number(message: Message, state: FSMContext):
                 .where(
                 TemporaryPass.car_number == car_number,
                 TemporaryPass.status == 'approved',
-                TemporaryPass.visit_date <= today,
-                today <= func.date(TemporaryPass.visit_date, f'+{PASS_TIME} days'))
+                temp_condition)
 
             temp_contr_result = await session.execute(temp_contr_stmt)
             temp_contr_passes = temp_contr_result.all()
@@ -118,8 +127,7 @@ async def search_by_number(message: Message, state: FSMContext):
                 TemporaryPass.owner_type == 'staff',
                 TemporaryPass.car_number == car_number,
                 TemporaryPass.status == 'approved',
-                TemporaryPass.visit_date <= today,
-                today <= func.date(TemporaryPass.visit_date, f'+{PASS_TIME} days')
+                temp_condition
             )
 
             temp_staff_result = await session.execute(temp_staff_stmt)
@@ -277,8 +285,18 @@ async def search_by_digits(message: Message, state: FSMContext):
             admin_result = await session.execute(admin_stmt)
             admin_passes = admin_result.scalars()
 
+            future_limit = today + timedelta(days=FUTURE_LIMIT)
+            temp_condition = or_(
+                and_(
+                    TemporaryPass.visit_date <= today,
+                    func.date(TemporaryPass.visit_date, f'+{PASS_TIME} days') >= today
+                ),
+                and_(
+                    TemporaryPass.visit_date > today,
+                    TemporaryPass.visit_date <= future_limit
+                )
+            )
 
-            # 2. Поиск временных пропусков резидентов
             temp_res_stmt = select(
                 TemporaryPass,
                 Resident.fio,
@@ -287,8 +305,7 @@ async def search_by_digits(message: Message, state: FSMContext):
                 .join(Resident, TemporaryPass.resident_id == Resident.id) \
                 .where(
                 TemporaryPass.status == 'approved',
-                TemporaryPass.visit_date <= today,
-                func.date(TemporaryPass.visit_date, f'+{PASS_TIME} days') >= today,
+                temp_condition,
                 TemporaryPass.car_number.ilike(f"%{digits}%")
             )
 
@@ -305,8 +322,7 @@ async def search_by_digits(message: Message, state: FSMContext):
                 .join(Contractor, TemporaryPass.contractor_id == Contractor.id) \
                 .where(
                 TemporaryPass.status == 'approved',
-                TemporaryPass.visit_date <= today,
-                func.date(TemporaryPass.visit_date, f'+{PASS_TIME} days') >= today,
+                temp_condition,
                 TemporaryPass.car_number.ilike(f"%{digits}%")
             )
 
@@ -316,8 +332,7 @@ async def search_by_digits(message: Message, state: FSMContext):
             temp_staff_stmt = select(TemporaryPass).where(
                 TemporaryPass.owner_type == 'staff',
                 TemporaryPass.status == 'approved',
-                TemporaryPass.visit_date <= today,
-                func.date(TemporaryPass.visit_date, f'+{PASS_TIME} days') >= today,
+                temp_condition,
                 TemporaryPass.car_number.ilike(f"%{digits}%")
             )
 
@@ -446,7 +461,17 @@ async def show_all_temp_passes(callback: CallbackQuery):
         found = False
 
         async with AsyncSessionLocal() as session:
-            # Поиск временных пропусков резидентов
+            future_limit = today + timedelta(days=FUTURE_LIMIT)
+            temp_condition = or_(
+                and_(
+                    TemporaryPass.visit_date <= today,
+                    func.date(TemporaryPass.visit_date, f'+{PASS_TIME} days') >= today
+                ),
+                and_(
+                    TemporaryPass.visit_date > today,
+                    TemporaryPass.visit_date <= future_limit
+                )
+            )
             res_stmt = select(
                 TemporaryPass,
                 Resident.fio,
@@ -455,8 +480,7 @@ async def show_all_temp_passes(callback: CallbackQuery):
                 .join(Resident, TemporaryPass.resident_id == Resident.id) \
                 .where(
                 TemporaryPass.status == 'approved',
-                TemporaryPass.visit_date <= today,
-                func.date(TemporaryPass.visit_date, f'+{PASS_TIME} days') >= today)
+                temp_condition)
 
             res_result = await session.execute(res_stmt)
             res_passes = res_result.all()
@@ -471,8 +495,7 @@ async def show_all_temp_passes(callback: CallbackQuery):
                 .join(Contractor, TemporaryPass.contractor_id == Contractor.id) \
                 .where(
                 TemporaryPass.status == 'approved',
-                TemporaryPass.visit_date <= today,
-                func.date(TemporaryPass.visit_date, f'+{PASS_TIME} days') >= today)
+                temp_condition)
 
             contr_result = await session.execute(contr_stmt)
             contr_passes = contr_result.all()
@@ -480,8 +503,7 @@ async def show_all_temp_passes(callback: CallbackQuery):
             staff_stmt = select(TemporaryPass).where(
                 TemporaryPass.owner_type == 'staff',
                 TemporaryPass.status == 'approved',
-                TemporaryPass.visit_date <= today,
-                func.date(TemporaryPass.visit_date, f'+{PASS_TIME} days') >= today
+                temp_condition
             )
 
             staff_result = await session.execute(staff_stmt)
