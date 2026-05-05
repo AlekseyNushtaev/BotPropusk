@@ -43,3 +43,8 @@ SPECIAL_PASS_PRICE_RUBLES: int = int(os.environ.get("SPECIAL_PASS_PRICE_RUBLES",
 SPECIAL_PASS_RESIDENT_PHONES_RAW: str = os.environ.get(
     "SPECIAL_PASS_RESIDENT_PHONES", "89655770768"
 ).strip()
+
+UK_DIRECTOR_CONTACT_TEXT = (
+    "Оставляйте обращения, пожелания, замечания\n\n"
+    "zagorodomlife@outlook.com"
+)

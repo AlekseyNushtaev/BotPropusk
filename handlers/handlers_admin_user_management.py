@@ -56,7 +56,6 @@ def get_admin_menu():
         [InlineKeyboardButton(text="🚪 Пропуска", callback_data="passes_menu")],
         [InlineKeyboardButton(text="🔍 Поиск пропуска", callback_data="search_pass")],
         [InlineKeyboardButton(text="📈Статистика", callback_data="statistics_menu")],
-        [InlineKeyboardButton(text="📨 Обращения в УК", callback_data="appeals_management")],
         [InlineKeyboardButton(text="📩 Выполнить рассылку", callback_data="posting")],
     ])
 

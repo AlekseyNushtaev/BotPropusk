@@ -13,7 +13,8 @@ from aiogram.utils.keyboard import ReplyKeyboardBuilder
 from sqlalchemy import select, func, or_
 
 from bot import bot
-from config import PAGE_SIZE, RAZRAB, PASS_TIME, MAX_CAR_PASSES, MAX_TRUCK_PASSES, TRUCK_CATEGORIES_PHOTO_FILE_ID
+from config import PAGE_SIZE, RAZRAB, PASS_TIME, MAX_CAR_PASSES, MAX_TRUCK_PASSES, TRUCK_CATEGORIES_PHOTO_FILE_ID, \
+    UK_DIRECTOR_CONTACT_TEXT
 from date_parser import parse_date
 from db.models import Resident, AsyncSessionLocal, ResidentContractorRequest, PermanentPass, Contractor, TemporaryPass, \
     ContractorContractorRequest
@@ -111,11 +112,13 @@ async def main_menu(message: Message):
             if contractor.can_add_contractor:
                 inline_kb = InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="Зарегистрировать субподрядчика", callback_data="register_contractor")],
-                    [InlineKeyboardButton(text="Временные пропуска", callback_data="temporary_pass_menu")]
+                    [InlineKeyboardButton(text="Временные пропуска", callback_data="temporary_pass_menu")],
+                    [InlineKeyboardButton(text="Написать Руководителю УК", callback_data="uk_director_contact")]
                 ])
             else:
                 inline_kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="Временные пропуска", callback_data="temporary_pass_menu")]
+                    [InlineKeyboardButton(text="Временные пропуска", callback_data="temporary_pass_menu")],
+                    [InlineKeyboardButton(text="Написать Руководителю УК", callback_data="uk_director_contact")]
                 ])
 
             await message.answer(
@@ -149,17 +152,32 @@ async def main_menu(callback: CallbackQuery):
             if contractor.can_add_contractor:
                 inline_kb = InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="Зарегистрировать субподрядчика", callback_data="register_contractor")],
-                    [InlineKeyboardButton(text="Временные пропуска", callback_data="temporary_pass_menu")]
+                    [InlineKeyboardButton(text="Временные пропуска", callback_data="temporary_pass_menu")],
+                    [InlineKeyboardButton(text="Написать Руководителю УК", callback_data="uk_director_contact")]
                 ])
             else:
                 inline_kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="Временные пропуска", callback_data="temporary_pass_menu")]
+                    [InlineKeyboardButton(text="Временные пропуска", callback_data="temporary_pass_menu")],
+                    [InlineKeyboardButton(text="Написать Руководителю УК", callback_data="uk_director_contact")]
                 ])
 
             await callback.message.edit_text(
                 text=text,
                 reply_markup=inline_kb
             )
+    except Exception as e:
+        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
+        await asyncio.sleep(0.05)
+
+
+@router.callback_query(F.data == "uk_director_contact")
+async def uk_director_contact(callback: CallbackQuery):
+    try:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_main_menu")]
+        ])
+        await callback.message.answer(UK_DIRECTOR_CONTACT_TEXT, reply_markup=keyboard)
+        await callback.answer()
     except Exception as e:
         await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
         await asyncio.sleep(0.05)
@@ -956,11 +974,13 @@ async def process_work_types(message: Message, state: FSMContext):
             if contractor.can_add_contractor:
                 inline_kb = InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="Зарегистрировать субподрядчика", callback_data="register_contractor")],
-                    [InlineKeyboardButton(text="Временные пропуска", callback_data="temporary_pass_menu")]
+                    [InlineKeyboardButton(text="Временные пропуска", callback_data="temporary_pass_menu")],
+                    [InlineKeyboardButton(text="Написать Руководителю УК", callback_data="uk_director_contact")]
                 ])
             else:
                 inline_kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="Временные пропуска", callback_data="temporary_pass_menu")]
+                    [InlineKeyboardButton(text="Временные пропуска", callback_data="temporary_pass_menu")],
+                    [InlineKeyboardButton(text="Написать Руководителю УК", callback_data="uk_director_contact")]
                 ])
 
             await message.answer(

@@ -28,7 +28,8 @@ from truck_yookassa_flow import (
 from temp_pass_staff_notify import build_auto_approved_staff_notice
 
 from bot import bot
-from config import PAGE_SIZE, PASS_TIME, MAX_CAR_PASSES, MAX_TRUCK_PASSES, RAZRAB, TRUCK_CATEGORIES_PHOTO_FILE_ID
+from config import PAGE_SIZE, PASS_TIME, MAX_CAR_PASSES, MAX_TRUCK_PASSES, RAZRAB, TRUCK_CATEGORIES_PHOTO_FILE_ID, \
+    UK_DIRECTOR_CONTACT_TEXT
 from date_parser import parse_date
 from db.models import Resident, AsyncSessionLocal, ResidentContractorRequest, PermanentPass, TemporaryPass
 from db.util import get_active_admins_and_managers_tg_ids, get_active_admins_managers_sb_tg_ids, text_warning
@@ -93,7 +94,7 @@ main_kb = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="Зарегистрировать подрядчика", callback_data="register_contractor")],
     [InlineKeyboardButton(text="Постоянные пропуска", callback_data="permanent_pass_menu")],
     [InlineKeyboardButton(text="Временные пропуска", callback_data="temporary_pass_menu")],
-    [InlineKeyboardButton(text="Обращения в УК", callback_data="appeals_menu")]  # Новая кнопка
+    [InlineKeyboardButton(text="Написать Руководителю УК", callback_data="uk_director_contact")]
 ])
 
 
@@ -235,6 +236,19 @@ async def process_work_types(message: Message, state: FSMContext):
         await asyncio.sleep(0.05)
 
 
+@router.callback_query(F.data == "uk_director_contact")
+async def uk_director_contact(callback: CallbackQuery):
+    try:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_main_menu")]
+        ])
+        await callback.message.answer(UK_DIRECTOR_CONTACT_TEXT, reply_markup=keyboard)
+        await callback.answer()
+    except Exception as e:
+        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
+        await asyncio.sleep(0.05)
+
+
 # Добавить новые обработчики
 @router.callback_query(F.data == "permanent_pass_menu")
 async def permanent_pass_menu(callback: CallbackQuery):
@@ -247,15 +261,6 @@ async def permanent_pass_menu(callback: CallbackQuery):
             [InlineKeyboardButton(text="Назад", callback_data="back_to_main_menu")]
         ])
         await callback.message.answer("Постоянные пропуска", reply_markup=keyboard)
-    except Exception as e:
-        await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
-        await asyncio.sleep(0.05)
-
-
-@router.callback_query(F.data == "back_to_main_menu")
-async def back_to_main_menu(callback: CallbackQuery):
-    try:
-        await main_menu(callback.message)
     except Exception as e:
         await bot.send_message(RAZRAB, f'{callback.from_user.id} - {str(e)}')
         await asyncio.sleep(0.05)
