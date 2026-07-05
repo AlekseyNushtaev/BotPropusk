@@ -206,26 +206,41 @@ async def export_statistics_to_xlsx(callback: CallbackQuery):
                     "Активен" if sec.status else "Неактивен",
                 ])
 
-            # Лист: Постоянные пропуска
+            # Лист: Постоянные пропуска (резиденты + представители УК)
             ws_perm = wb.create_sheet("Постоянные пропуска")
-            stmt = select(
-                PermanentPass,
-                Resident.fio,
-                Resident.plot_number
-            ).join(Resident, PermanentPass.resident_id == Resident.id)
-
-            passes = await session.execute(stmt)
+            perm_stmt = (
+                select(
+                    PermanentPass,
+                    Resident.fio,
+                    Resident.plot_number,
+                )
+                .outerjoin(Resident, PermanentPass.resident_id == Resident.id)
+                .order_by(PermanentPass.created_at.desc())
+            )
+            perm_rows = await session.execute(perm_stmt)
             ws_perm.append([
-                "ID", "Резидент ID", "ФИО резидента", "Участок",
-                "Марка", "Модель", "Номер", "Владелец", "Статус"
+                "ID", "Тип владельца", "Резидент ID", "ФИО резидента", "Участок",
+                "Марка", "Модель", "Номер", "Владелец авто", "Направление",
+                "Статус", "Комментарий резиденту", "Комментарий СБ",
+                "Дата создания", "Дата регистрации",
             ])
 
-            for pass_data in passes:
+            for pass_data in perm_rows:
                 pp = pass_data[0]
+                if pp.resident_id:
+                    owner_type = "Резидент"
+                    fio = pass_data[1]
+                    plot = pass_data[2]
+                else:
+                    owner_type = "Представитель УК"
+                    fio = ""
+                    plot = ""
                 ws_perm.append([
-                    pp.id, pp.resident_id, pass_data[1], pass_data[2],
+                    pp.id, owner_type, pp.resident_id, fio, plot,
                     pp.car_brand, pp.car_model, pp.car_number,
-                    pp.car_owner, pp.status
+                    pp.car_owner, pp.destination,
+                    pp.status, pp.resident_comment, pp.security_comment,
+                    _dt(pp.created_at), _dt(pp.time_registration),
                 ])
 
             # Лист: Временные пропуска
