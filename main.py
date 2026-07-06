@@ -10,6 +10,7 @@ from aiogram import Dispatcher
 
 from bot import bot
 from db.models import create_tables
+from yk_payment_scheduler import start_yookassa_payment_scheduler
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,8 @@ async def main() -> None:
     await create_tables()
     logging.basicConfig(level=logging.INFO, format='%(filename)s:%(lineno)d %(levelname)-8s [%(asctime)s] - %(name)s - %(message)s')
     logging.info('Starting bot')
+
+    scheduler = start_yookassa_payment_scheduler()
 
     dp = Dispatcher()
     dp.include_router(handlers_admin_photo_info.router)
@@ -38,7 +41,10 @@ async def main() -> None:
     dp.include_router(handlers_for_all.router)
 
     await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        scheduler.shutdown(wait=False)
 
 if __name__ == '__main__':
     asyncio.run(main())

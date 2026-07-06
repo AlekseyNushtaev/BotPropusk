@@ -41,7 +41,7 @@ SPECIAL_PASS_TG_USER_IDS: frozenset[int] = frozenset(
 SPECIAL_PASS_PRICE_RUBLES: int = int(os.environ.get("SPECIAL_PASS_PRICE_RUBLES", "10"))
 # Телефоны резидентов (нормализуются до 8XXXXXXXXXX), для них тариф грузового пропуска = SPECIAL_PASS_PRICE_RUBLES
 SPECIAL_PASS_RESIDENT_PHONES_RAW: str = os.environ.get(
-    "SPECIAL_PASS_RESIDENT_PHONES", "89655770768"
+    "SPECIAL_PASS_RESIDENT_PHONES", "89655770768,89008888888"
 ).strip()
 
 UK_DIRECTOR_CONTACT_TEXT = (
